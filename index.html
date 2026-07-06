@@ -1357,11 +1357,13 @@
           <div class="row">
             <span class="row-label">Volume</span>
             <input type="range" id="clickVolumeInput" min="0" max="1" step="0.01" value="0.65">
+            <button type="button" class="icon-btn" id="clickPreviewBtn" data-tip="この設定でクリック音を1回試し鳴らし">♪</button>
           </div>
           <div class="row">
             <span class="row-label" data-tip="正解の音をガイドどおりに鳴らします。まず聴きながら重ねて、慣れてきたら音量を絞って卒業してください。クリック音とは独立にオンオフできます。">Guide Tone</span>
             <button type="button" class="mini-power" id="guideToneToggle" data-tip="正解の音をガイドどおりに鳴らします。まず聴きながら重ねて、慣れてきたら音量を絞って卒業してください。クリック音とは独立にオンオフできます。"></button>
             <input type="range" id="guideToneVolumeInput" min="0" max="1" step="0.01" value="0.5">
+            <button type="button" class="icon-btn" id="guideTonePreviewBtn" data-tip="この設定でガイドの音（今のパターンの最初の音）を1回試し鳴らし">♪</button>
           </div>
           <div class="row">
             <span class="row-label" data-tip="クリックの拍設定（左から1・2・3・4拍目）。タップで切替：点灯＝鳴る ／ オレンジの「>」＝アクセント（強く鳴る）／ 消灯＝鳴らない。On Beat時のみ有効">Beats</span>
@@ -1445,7 +1447,7 @@
           </div>
           <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
           <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.6 (2026-07-07)</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.7 (2026-07-07)</div>
         </div>
 
         <div class="setting-block" id="blockOnset">
@@ -3139,8 +3141,8 @@
       $("coachTargetSub").textContent = next ? `${next.stringName}弦 ${next.fret}F・${FINGER_KANJI[next.finger] || ""}指` : (step ? "ラスト1音" : "--");
     }
 
-    function scheduleClick(time, accent = false, forceTone = null, outputScale = 1) {
-      if (!timing.audioCtx || !state.clickSound || state.overloadMuted) return;
+    function scheduleClick(time, accent = false, forceTone = null, outputScale = 1, preview = false) {
+      if (!timing.audioCtx || (!state.clickSound && !preview) || state.overloadMuted) return;
       const osc = timing.audioCtx.createOscillator();
       const gain = timing.audioCtx.createGain();
       const bright = (forceTone || state.clickTone) === "bright";
@@ -3163,10 +3165,11 @@
       return open * Math.pow(2, (Number(step.fret) || 0) / 12);
     }
 
-    function scheduleGuideTone(time, freq) {
-      if (!timing.audioCtx || !state.guideToneEnabled || state.overloadMuted) return;
+    function scheduleGuideTone(time, freq, preview = false) {
+      if (!timing.audioCtx || state.overloadMuted) return;
+      if (!preview && !state.guideToneEnabled) return;
       if (!freq || !isFinite(freq)) return;
-      if (timing.countInEndTime && time < timing.countInEndTime) return; // カウントイン中は鳴らさない
+      if (!preview && timing.countInEndTime && time < timing.countInEndTime) return; // カウントイン中は鳴らさない
       const ctx = timing.audioCtx;
       // エンベロープ用ゲイン（テヌート：アタック約3ms→次の音の直前まで保持→約60msリリース）。最終ゲインはリミッターを叩かない設計。
       const gain = ctx.createGain();
@@ -4254,6 +4257,18 @@
         state.clickSound = !state.clickSound;
         $("soundToggle").classList.toggle("active", state.clickSound);
         saveSettings();
+      });
+      $("clickPreviewBtn").addEventListener("click", () => {
+        const ctx = ensureAudioContext();
+        if (ctx.state === "suspended") ctx.resume();
+        scheduleClick(ctx.currentTime + 0.05, true, null, 1, true);
+      });
+      $("guideTonePreviewBtn").addEventListener("click", () => {
+        const ctx = ensureAudioContext();
+        if (ctx.state === "suspended") ctx.resume();
+        const seq = buildPracticeSequence();
+        const f = guideToneFreq(seq && seq[0]) || 55;
+        scheduleGuideTone(ctx.currentTime + 0.05, f, true);
       });
       $("clickVolumeInput").addEventListener("input", () => {
         state.clickVolume = clampGainValue(Number($("clickVolumeInput").value));

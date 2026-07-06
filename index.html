@@ -1411,7 +1411,7 @@
           </div>
           <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
           <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.0 (2026-07-06)</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.1 (2026-07-06)</div>
         </div>
 
         <div class="setting-block" id="blockOnset">
@@ -1535,6 +1535,19 @@
           <li>Test-only Calibration（お試し用）：Enterキーで遊ぶだけの人向けの簡易補正です。マイクやケーブルは不要。</li>
           <li>測った値はブラウザに保存されますが、ブラウザを開き直すと数ミリ秒ずれることがあります。真剣に計測する日は、開いたら較正1回、が合言葉です。</li>
           <li>較正しなくてもメトロノームとガイドはそのまま使えます（シンプルモード♪ならそもそも較正不要）。</li>
+        </ul>
+        <p><b>Onset Detection（音の立ち上がり検出）って何？</b><br>AUDIOモードのとき、アプリはあなたが弾いた「音の立ち上がり（オンセット）」を聴き取って、メトロノームとのズレを測ります。3つのスライダーは、ぜんぶ「どの音を本物の1音と認めるか」を決める門番の設定です。</p>
+        <ul>
+          <li>Sense（感度）：門番の厳しさ。弾いたのにカウントされない（取りこぼし）→ 下げる。弾いていないのに反応する（Ghost）→ 上げる。</li>
+          <li>Refract（休止時間）：1音を認めたあと、次の音を受け付けない時間。1音なのに2回数えられる → 上げる。速いフレーズが取りこぼされる → 下げる。</li>
+          <li>Gate（無音ゲート）：これより小さい音は門前払い。アンプのノイズや弦のこすれで誤反応する → 上げる（-60くらいへ）。小さな音もちゃんと拾いたい → 下げる。</li>
+        </ul>
+        <p><b>Advanced（普段は触らなくていい）</b><br>音の分析エンジンの内部設定です。困っていないなら初期値のままが正解。</p>
+        <ul>
+          <li>Frame：音を分析する「窓」の大きさ。大きいほど音色の変化に気づきやすいが、反応がのんびりになる。</li>
+          <li>Hop：分析の頻度。小さいほど時間の精度が上がるが、パソコンの負担が増える。</li>
+          <li>Median pre / post：「直前の音量の流れ」と比べるための参照範囲。ノイズの多い環境で判定がふらつくときの調整用。</li>
+          <li>いじって分からなくなったら、設定リセットで全部初期値に戻せます（較正値は消えません）。</li>
         </ul>
       </div>
       <div class="dialog-actions">
@@ -2210,7 +2223,7 @@
         $("lastTimingSub").textContent = Math.abs(last) <= state.judgeWindow ? "JUST" : last < 0 ? "EARLY" : "LATE";
         $("timingScore").textContent = `${Math.round(stats.justRate * 100)}%`;
         $("sdTiming").textContent = `${stats.sd.toFixed(1)}`;
-        $("trendTiming").textContent = Math.abs(stats.avg) < 2 ? "CENTER" : stats.avg < 0 ? "EARLY" : "LATE";
+        $("trendTiming").textContent = Math.abs(stats.avg) < Math.min(state.judgeWindow / 2, 15) ? "CENTER" : stats.avg < 0 ? "EARLY" : "LATE";
       }
 
       const meter = $("timingMeter");

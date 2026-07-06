@@ -1439,7 +1439,7 @@
           </div>
           <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
           <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 2.7 (2026-07-06)</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 2.8 (2026-07-06)</div>
         </div>
 
       </div>
@@ -1865,7 +1865,12 @@
           const sinceLast = candidate.frameEnd - this.lastOnsetFrame;
           if (candidate.flux >= adaptive && sinceLast >= refractoryFrames) {
             this.lastOnsetFrame = candidate.frameEnd;
-            const onsetFrame = Math.max(0, candidate.frameEnd - this.frameSize + this.hopSize);
+            // Phase 2.8: report the start of the causal hop block (the newest hopSize
+            // samples that drove the flux rise). Old formula (frameEnd - frameSize +
+            // hopSize) reported (frameSize - 2*hopSize)=512 samples (~11.6ms @44.1k)
+            // early; this constant shift aligns the report with the true onset and the
+            // sample-accurate calibration path. Detection behaviour is unchanged.
+            const onsetFrame = Math.max(0, candidate.frameEnd - this.hopSize);
             this.port.postMessage({
               type: "onset",
               audioTime: onsetFrame / sampleRate,

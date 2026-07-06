@@ -1359,6 +1359,11 @@
             <input type="range" id="clickVolumeInput" min="0" max="1" step="0.01" value="0.65">
           </div>
           <div class="row">
+            <span class="row-label" data-tip="正解の音をガイドどおりに鳴らします。まず聴きながら重ねて、慣れてきたら音量を絞って卒業してください。クリック音とは独立にオンオフできます。">Guide Tone</span>
+            <button type="button" class="mini-power" id="guideToneToggle" data-tip="正解の音をガイドどおりに鳴らします。まず聴きながら重ねて、慣れてきたら音量を絞って卒業してください。クリック音とは独立にオンオフできます。"></button>
+            <input type="range" id="guideToneVolumeInput" min="0" max="1" step="0.01" value="0.5">
+          </div>
+          <div class="row">
             <span class="row-label" data-tip="クリックの拍設定（左から1・2・3・4拍目）。タップで切替：点灯＝鳴る ／ オレンジの「>」＝アクセント（強く鳴る）／ 消灯＝鳴らない。On Beat時のみ有効">Beats</span>
             <div class="beat-picker" id="beatPicker">
               <button type="button" data-beat="0"></button>
@@ -1440,7 +1445,7 @@
           </div>
           <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
           <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.4 (2026-07-06)</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.5 (2026-07-06)</div>
         </div>
 
         <div class="setting-block" id="blockOnset">
@@ -1649,6 +1654,8 @@
     };
     const PC_NAMES = ["C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"];
     const STRINGS = ["G", "D", "A", "E"];
+    // ガイドトーン用 開放弦周波数(Hz・標準4弦チューニング)。f = 開放弦周波数 × 2^(fret/12)
+    const OPEN_STRING_FREQ = { G: 97.999, D: 73.416, A: 55.000, E: 41.203 };
     const STRING_INDEX = Object.fromEntries(STRINGS.map((n, i) => [n, i]));
     const CIRCLE_MAJOR = [
       {key:"C", accidental:"0", names:["C","D","E","F","G","A","B"]},
@@ -1746,6 +1753,8 @@
       showNext: true,
       clickSound: true,
       clickVolume: 0.65,
+      guideToneEnabled: false,
+      guideToneVolume: 0.5,
       clickTone: "bright",
       accent: true,
       beatPattern: ["accent", "on", "on", "on"],
@@ -3147,6 +3156,42 @@
       osc.stop(time + (bright ? 0.055 : 0.085));
     }
 
+    // ガイドトーン：正解音（弾くべき音）をグリッドどおりに鳴らす。初期OFF・クリックと独立。
+    function guideToneFreq(step) {
+      const open = OPEN_STRING_FREQ[step && step.stringName];
+      if (!open) return 0;
+      return open * Math.pow(2, (Number(step.fret) || 0) / 12);
+    }
+
+    function scheduleGuideTone(time, freq) {
+      if (!timing.audioCtx || !state.guideToneEnabled || state.overloadMuted) return;
+      if (!freq || !isFinite(freq)) return;
+      if (timing.countInEndTime && time < timing.countInEndTime) return; // カウントイン中は鳴らさない
+      const ctx = timing.audioCtx;
+      // エンベロープ用ゲイン（プラック風：アタック約3ms・指数減衰約380ms）。最終ゲインはリミッターを叩かない設計。
+      const gain = ctx.createGain();
+      const level = clampGainValue(state.guideToneVolume) * 0.5;
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, level), time + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.38);
+      gain.connect(timing.master);
+      // 基音（triangle f）
+      const osc1 = ctx.createOscillator();
+      osc1.type = "triangle";
+      osc1.frequency.setValueAtTime(freq, time);
+      osc1.connect(gain);
+      // 1オクターブ上を-6dBでブレンド（triangle 2f）
+      const octGain = ctx.createGain();
+      octGain.gain.setValueAtTime(0.5, time);
+      octGain.connect(gain);
+      const osc2 = ctx.createOscillator();
+      osc2.type = "triangle";
+      osc2.frequency.setValueAtTime(freq * 2, time);
+      osc2.connect(octGain);
+      osc1.start(time); osc2.start(time);
+      osc1.stop(time + 0.42); osc2.stop(time + 0.42);
+    }
+
     function queueCountInBeat(time, countLeft) {
       const delay = Math.max(0, (time - timing.audioCtx.currentTime) * 1000);
       window.setTimeout(() => {
@@ -3161,6 +3206,7 @@
       const step = sequence[stepIndex];
       if (!step) return;
       state.scheduledNotes.push({ time, stepIndex, hit: false, ...step });
+      scheduleGuideTone(time, guideToneFreq(step));
       const delay = Math.max(0, (time - timing.audioCtx.currentTime) * 1000);
       window.setTimeout(() => {
         if (!state.running) return;
@@ -3724,8 +3770,8 @@
     }
 
     const SETTINGS_KEY = "bassTrinityTrainerSettings";
-    const SETTING_FIELDS = ["tempo", "clickMode", "progressMode", "countInBars", "topRepeats", "judgeWindow", "clickSound", "clickVolume", "clickTone", "guideEnabled", "fingerDisplay", "showNext", "ghostEnabled", "beatPattern", "inputMode", "inputDeviceId", "inputChannel", "inputBoostDb", "onsetThreshold", "refractoryMs", "silenceGateDb", "frameSize", "hopSize", "adaptivePre", "adaptivePost"];
-    const DEFAULT_SETTINGS = { tempo: 90, clickMode: "backbeat", progressMode: "quarter", countInBars: 1, topRepeats: 2, judgeWindow: 20, clickSound: true, clickVolume: 0.65, clickTone: "bright", guideEnabled: true, fingerDisplay: "num", showNext: true, ghostEnabled: true, beatPattern: ["accent", "on", "on", "on"], inputMode: "t1", inputDeviceId: "", inputChannel: 0, inputBoostDb: 0, onsetThreshold: 0.08, refractoryMs: 50, silenceGateDb: -70, frameSize: 1024, hopSize: 256, adaptivePre: 8, adaptivePost: 1 };
+    const SETTING_FIELDS = ["tempo", "clickMode", "progressMode", "countInBars", "topRepeats", "judgeWindow", "clickSound", "clickVolume", "clickTone", "guideToneEnabled", "guideToneVolume", "guideEnabled", "fingerDisplay", "showNext", "ghostEnabled", "beatPattern", "inputMode", "inputDeviceId", "inputChannel", "inputBoostDb", "onsetThreshold", "refractoryMs", "silenceGateDb", "frameSize", "hopSize", "adaptivePre", "adaptivePost"];
+    const DEFAULT_SETTINGS = { tempo: 90, clickMode: "backbeat", progressMode: "quarter", countInBars: 1, topRepeats: 2, judgeWindow: 20, clickSound: true, clickVolume: 0.65, clickTone: "bright", guideToneEnabled: false, guideToneVolume: 0.5, guideEnabled: true, fingerDisplay: "num", showNext: true, ghostEnabled: true, beatPattern: ["accent", "on", "on", "on"], inputMode: "t1", inputDeviceId: "", inputChannel: 0, inputBoostDb: 0, onsetThreshold: 0.08, refractoryMs: 50, silenceGateDb: -70, frameSize: 1024, hopSize: 256, adaptivePre: 8, adaptivePost: 1 };
     function saveSettings() {
       const data = {};
       SETTING_FIELDS.forEach(key => { data[key] = state[key]; });
@@ -3740,6 +3786,8 @@
       if (!Array.isArray(state.beatPattern) || state.beatPattern.length !== 4) state.beatPattern = [...DEFAULT_SETTINGS.beatPattern];
       if (!["t1", "audio"].includes(state.inputMode)) state.inputMode = "t1";
       state.clickVolume = clampGainValue(Number(state.clickVolume) || DEFAULT_SETTINGS.clickVolume);
+      state.guideToneEnabled = state.guideToneEnabled === true;
+      state.guideToneVolume = clampGainValue(Number(state.guideToneVolume) || DEFAULT_SETTINGS.guideToneVolume);
       state.inputChannel = Math.max(0, Math.min(1, Number(state.inputChannel) || 0));
       state.inputBoostDb = Math.max(0, Math.min(24, Number(state.inputBoostDb) || 0));
       state.onsetThreshold = Math.max(0.01, Math.min(0.6, Number(state.onsetThreshold) || DEFAULT_SETTINGS.onsetThreshold));
@@ -3771,6 +3819,8 @@
       });
       $("nextToggle").checked = state.showNext;
       $("soundToggle").classList.toggle("active", state.clickSound);
+      $("guideToneToggle").classList.toggle("active", state.guideToneEnabled);
+      $("guideToneVolumeInput").value = String(state.guideToneVolume);
       paintBeatPicker();
       reflectAudioInputUi();
       reflectLoopbackCalibration();
@@ -4205,6 +4255,16 @@
       $("clickVolumeInput").addEventListener("input", () => {
         state.clickVolume = clampGainValue(Number($("clickVolumeInput").value));
         $("clickVolumeInput").value = String(state.clickVolume);
+        saveSettings();
+      });
+      $("guideToneToggle").addEventListener("click", () => {
+        state.guideToneEnabled = !state.guideToneEnabled;
+        $("guideToneToggle").classList.toggle("active", state.guideToneEnabled);
+        saveSettings();
+      });
+      $("guideToneVolumeInput").addEventListener("input", () => {
+        state.guideToneVolume = clampGainValue(Number($("guideToneVolumeInput").value));
+        $("guideToneVolumeInput").value = String(state.guideToneVolume);
         saveSettings();
       });
       $("clickToneSelect").addEventListener("change", () => {

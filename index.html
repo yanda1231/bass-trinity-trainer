@@ -1445,7 +1445,7 @@
           </div>
           <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
           <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.5 (2026-07-06)</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.6 (2026-07-07)</div>
         </div>
 
         <div class="setting-block" id="blockOnset">
@@ -3168,12 +3168,15 @@
       if (!freq || !isFinite(freq)) return;
       if (timing.countInEndTime && time < timing.countInEndTime) return; // カウントイン中は鳴らさない
       const ctx = timing.audioCtx;
-      // エンベロープ用ゲイン（プラック風：アタック約3ms・指数減衰約380ms）。最終ゲインはリミッターを叩かない設計。
+      // エンベロープ用ゲイン（テヌート：アタック約3ms→次の音の直前まで保持→約60msリリース）。最終ゲインはリミッターを叩かない設計。
       const gain = ctx.createGain();
       const level = clampGainValue(state.guideToneVolume) * 0.5;
+      const dur = Math.max(0.12, noteDuration());
+      const holdEnd = time + dur * 0.88;
       gain.gain.setValueAtTime(0.0001, time);
       gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, level), time + 0.003);
-      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.38);
+      gain.gain.setValueAtTime(Math.max(0.0001, level), holdEnd);
+      gain.gain.exponentialRampToValueAtTime(0.0001, holdEnd + 0.06);
       gain.connect(timing.master);
       // 基音（triangle f）
       const osc1 = ctx.createOscillator();
@@ -3189,7 +3192,7 @@
       osc2.frequency.setValueAtTime(freq * 2, time);
       osc2.connect(octGain);
       osc1.start(time); osc2.start(time);
-      osc1.stop(time + 0.42); osc2.stop(time + 0.42);
+      osc1.stop(holdEnd + 0.1); osc2.stop(holdEnd + 0.1);
     }
 
     function queueCountInBeat(time, countLeft) {

@@ -1085,6 +1085,22 @@
     .app.performing .timing-status,
     .app.performing .settings { display: none; }
 
+    /* ===== Simple mode（計測なし・メトロノーム＋ガイドのみ） ===== */
+    body.simple-mode .stage-right,
+    body.simple-mode #blockJudgeWindow,
+    body.simple-mode #blockTestCal,
+    body.simple-mode #blockAudioInput,
+    body.simple-mode #blockOnset,
+    body.simple-mode #blockLoopback { display: none; }
+    body.simple-mode .app { max-width: 980px; margin: 0 auto; }
+    body.simple-mode .stage { grid-template-columns: 1fr; margin-top: 22px; }
+    body.simple-mode .settings-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    #simpleModeBtn.active {
+      color: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent) inset;
+    }
+
     /* ===== Responsive ===== */
     @media (max-width: 1120px) {
       .stage { grid-template-columns: 1fr; }
@@ -1142,6 +1158,7 @@
         <label class="chip" data-tip="ポジションガイド"><input type="checkbox" id="guideToggle" checked> Guide</label>
       </div>
       <div class="top-actions">
+        <button type="button" class="icon-btn theme-btn" id="simpleModeBtn" data-tip="シンプルモード：タイミング計測なし。メトロノームとガイドだけ" aria-pressed="false">♪</button>
         <button type="button" class="icon-btn theme-btn" id="helpBtn" data-tip="使い方ガイド">?</button>
         <button type="button" class="icon-btn theme-btn" id="themeToggle" data-tip="ダークモードへ切替">☾</button>
       </div>
@@ -1265,7 +1282,7 @@
           <div class="timing-status" id="menuStatus">Menu: A×1 → B×1 → C×1 → D×1</div>
         </div>
 
-        <div class="setting-block">
+        <div class="setting-block" id="blockJudgeWindow">
           <div class="block-title">Judge Window</div>
           <div class="jw-current">
             <span class="jw-label">ジャスト判定幅</span>
@@ -1335,22 +1352,7 @@
           </div>
         </div>
 
-        <div class="setting-block">
-          <div class="block-title">Calibration <span class="test-only">T1 TEST ONLY</span></div>
-          <div class="row">
-            <button type="button" class="icon-btn" id="tapCalBtn">Tap Cal (TEST ONLY)</button>
-            <label class="t-inline">Manual ms <input type="number" id="tapOffsetInput" value="0" step="1"></label>
-            <button type="button" class="icon-btn" id="resetTapOffsetBtn">Reset Cal</button>
-          </div>
-          <div class="timing-status" id="tapCalStatus">Tap offset: 0 ms</div>
-          <div class="hint">Manual に入れる値は自分の Average の実測値（例: +50）。機材の理論値ではありません。この較正はT1（キー入力）専用。本計測の較正は Audio Input ブロックのループバック測定を使うこと。</div>
-          <div class="row info-row">
-            <div class="t-field"><label>Count-In 残り</label><div class="field-value" id="countInDisplay">--</div></div>
-            <div class="t-field"><label>Audio Latency</label><div class="field-value" id="latencyDisplay">--</div></div>
-          </div>
-        </div>
-
-        <div class="setting-block">
+        <div class="setting-block" id="blockAudioInput">
           <div class="block-title">Audio Input <span class="status-pill" id="audioInputBadge">T1</span></div>
           <div class="row">
             <span class="row-label" data-tip="T1=Enterキー / AUDIO=マイク・ライン入力">Source</span>
@@ -1380,7 +1382,30 @@
           <div class="timing-status danger" id="overloadWarning" hidden>入力が過大です。ダイレクトモニターとゲインを確認してください <button type="button" class="icon-btn" id="overloadResetBtn">復帰</button></div>
         </div>
 
-        <div class="setting-block">
+        <div class="setting-block" id="blockLoopback">
+          <div class="block-title">Loopback Calibration</div>
+          <div class="cal-steps" id="loopbackSteps" aria-label="loopback calibration steps">
+            <div class="cal-step active" data-step="1">ケーブル接続</div>
+            <div class="cal-step" data-step="2">レベル設定</div>
+            <div class="cal-step" data-step="3">測定</div>
+            <div class="cal-step" data-step="4">補正値の確認</div>
+            <div class="cal-step" data-step="5">適用</div>
+          </div>
+          <div class="row">
+            <button type="button" class="icon-btn" id="loopbackCalBtn" data-tip="出力→入力を物理直結して16回クリックを測定">Start Loopback Cal</button>
+            <label class="t-inline">Offset ms <input type="number" id="loopbackOffsetInput" value="0" step="0.1"></label>
+            <button type="button" class="icon-btn primary" id="applyLoopbackBtn" disabled>この値を適用</button>
+          </div>
+          <div class="row info-row">
+            <div class="t-field"><label>Saved</label><div class="field-value" id="loopbackSavedDisplay">--</div></div>
+            <div class="t-field"><label>SD</label><div class="field-value" id="loopbackSdDisplay">--</div></div>
+          </div>
+          <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
+          <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 2.9 (2026-07-06)</div>
+        </div>
+
+        <div class="setting-block" id="blockOnset">
           <div class="block-title">Onset Detection <span class="status-pill" id="calibrationStateBadge">UNCAL</span></div>
           <div class="row">
             <span class="row-label" data-tip="Spectral Fluxの固定閾値。取りこぼしは下げる、Ghostは上げる">Sense</span>
@@ -1419,27 +1444,19 @@
           </details>
         </div>
 
-        <div class="setting-block">
-          <div class="block-title">Loopback Calibration</div>
-          <div class="cal-steps" id="loopbackSteps" aria-label="loopback calibration steps">
-            <div class="cal-step active" data-step="1">ケーブル接続</div>
-            <div class="cal-step" data-step="2">レベル設定</div>
-            <div class="cal-step" data-step="3">測定</div>
-            <div class="cal-step" data-step="4">補正値の確認</div>
-            <div class="cal-step" data-step="5">適用</div>
-          </div>
+        <div class="setting-block" id="blockTestCal">
+          <div class="block-title">Test-only Calibration <span class="test-only" data-tip="キー入力（Enter）練習専用の較正。本計測（AUDIO入力）はループバック較正を使う">T1</span></div>
           <div class="row">
-            <button type="button" class="icon-btn" id="loopbackCalBtn" data-tip="出力→入力を物理直結して16回クリックを測定">Start Loopback Cal</button>
-            <label class="t-inline">Offset ms <input type="number" id="loopbackOffsetInput" value="0" step="0.1"></label>
-            <button type="button" class="icon-btn primary" id="applyLoopbackBtn" disabled>この値を適用</button>
+            <button type="button" class="icon-btn" id="tapCalBtn">Tap Cal (TEST ONLY)</button>
+            <label class="t-inline">Manual ms <input type="number" id="tapOffsetInput" value="0" step="1"></label>
+            <button type="button" class="icon-btn" id="resetTapOffsetBtn">Reset Cal</button>
           </div>
+          <div class="timing-status" id="tapCalStatus">Tap offset: 0 ms</div>
+          <div class="hint">Manual に入れる値は自分の Average の実測値（例: +50）。機材の理論値ではありません。この較正はT1（キー入力）専用。本計測の較正は Audio Input ブロックのループバック測定を使うこと。</div>
           <div class="row info-row">
-            <div class="t-field"><label>Saved</label><div class="field-value" id="loopbackSavedDisplay">--</div></div>
-            <div class="t-field"><label>SD</label><div class="field-value" id="loopbackSdDisplay">--</div></div>
+            <div class="t-field"><label>Count-In 残り</label><div class="field-value" id="countInDisplay">--</div></div>
+            <div class="t-field"><label>Audio Latency</label><div class="field-value" id="latencyDisplay">--</div></div>
           </div>
-          <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
-          <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 2.8 (2026-07-06)</div>
         </div>
 
       </div>
@@ -1632,6 +1649,7 @@
       accent: true,
       beatPattern: ["accent", "on", "on", "on"],
       ghostEnabled: true,
+      simpleMode: false,
       inputMode: "t1",
       inputDeviceId: "",
       inputDeviceLabel: "",
@@ -3305,7 +3323,7 @@
         </div>
         ${summaryTable("By Pattern", patternRows)}
         ${summaryTable("By Pattern Set", setRows)}`;
-      $("summaryModal").classList.add("show");
+      if (!state.simpleMode) $("summaryModal").classList.add("show");
     }
 
     const BEAT_CYCLE = { off: "on", on: "accent", accent: "off" };
@@ -3425,11 +3443,26 @@
       }
     }
 
+    function applySimpleMode(on) {
+      state.simpleMode = on;
+      document.body.classList.toggle("simple-mode", on);
+      const btn = $("simpleModeBtn");
+      if (btn) {
+        btn.classList.toggle("active", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+        btn.dataset.tip = on ? "通常モードへ戻る（計測UIを表示）" : "シンプルモード：タイミング計測なし。メトロノームとガイドだけ";
+      }
+      if (on && state.audioInputActive) stopAudioInput();
+      try { localStorage.setItem("bttSimpleMode", on ? "1" : "0"); } catch (_) {}
+    }
+
     function init() {
       applyTheme(localStorage.getItem("bassTrinityTrainerTheme") || "light");
       $("themeToggle").addEventListener("click", () => {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
       });
+      $("simpleModeBtn").addEventListener("click", () => applySimpleMode(!state.simpleMode));
+      applySimpleMode(localStorage.getItem("bttSimpleMode") === "1");
       initTips();
       loadSettings();
       try {
@@ -3775,6 +3808,7 @@
           if (!state.tapCalibrating) startTiming();
         }
         if (event.code === "Enter" || event.code === "NumpadEnter") {
+          if (state.simpleMode) return;
           event.preventDefault();
           tapNow();
         }

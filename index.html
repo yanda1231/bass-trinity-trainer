@@ -1087,6 +1087,11 @@
       gap: 8px;
       justify-content: flex-end;
       align-items: center;
+      position: sticky;
+      bottom: 0;
+      background: var(--surface);
+      padding-top: 10px;
+      margin-top: 2px;
     }
     .dialog-actions .btn-ghost { margin-right: auto; font-size: 12px; height: 34px; }
     .bpm-step { min-width: 34px; padding: 0 10px; font-weight: 900; }
@@ -1405,6 +1410,11 @@
             <button type="button" class="clip-led" id="inputClipLed" aria-label="clip indicator reset" data-tip="-0.5dBFS超で点灯。クリックでリセット"></button>
             <span class="readout" id="inputLevelText">-- dB</span>
           </div>
+          <div class="row">
+            <span class="row-label" data-tip="アプリの中だけで入力を増幅します（機材やスピーカーの音量には影響しません）。検出が鈍いときは、まずこれを上げて入力メーターを7〜8割まで持っていき、それでも足りなければSenseを下げてください。">Boost</span>
+            <input type="range" id="inputBoostInput" min="0" max="24" step="1" value="0">
+            <span class="readout" id="inputBoostValue">+0 dB</span>
+          </div>
           <div class="timing-status" id="audioInputStatus">Audio input: T1モード（Enterキー）</div>
           <div class="timing-status" id="inputSettingsStatus">EC/NS/AGC: --</div>
           <div class="timing-status danger" id="overloadWarning" hidden>入力が過大です。ダイレクトモニターとゲインを確認してください <button type="button" class="icon-btn" id="overloadResetBtn">復帰</button></div>
@@ -1430,7 +1440,7 @@
           </div>
           <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
           <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.2 (2026-07-06)</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.3 (2026-07-06)</div>
         </div>
 
         <div class="setting-block" id="blockOnset">
@@ -1443,7 +1453,7 @@
           </div>
           <div class="row">
             <span class="row-label" data-tip="Spectral Fluxの固定閾値。取りこぼしは下げる、Ghostは上げる">Sense</span>
-            <input type="range" id="onsetThresholdInput" min="0.05" max="0.6" step="0.01" value="0.18">
+            <input type="range" id="onsetThresholdInput" min="0.01" max="0.6" step="0.01" value="0.08">
             <span class="readout" id="onsetThresholdValue">0.18</span>
           </div>
           <div class="row">
@@ -1723,13 +1733,14 @@
       inputDeviceId: "",
       inputDeviceLabel: "",
       inputChannel: 0,
+      inputBoostDb: 0,
       audioInputActive: false,
       inputLevelDb: -100,
       inputPeakDb: -100,
       inputClipHeld: false,
       overloadMuted: false,
       inputSettingsWarning: false,
-      onsetThreshold: 0.18,
+      onsetThreshold: 0.08,
       refractoryMs: 50,
       silenceGateDb: -70,
       frameSize: 1024,
@@ -1795,6 +1806,7 @@
       inputSource: null,
       channelSplitter: null,
       inputHighpass: null,
+      inputBoost: null,
       onsetNode: null,
       levelAnalyser: null,
       levelBuffer: null,
@@ -1810,7 +1822,7 @@
           const p = (options && options.processorOptions) || {};
           this.frameSize = p.frameSize || 1024;
           this.hopSize = p.hopSize || 256;
-          this.threshold = p.threshold || 0.18;
+          this.threshold = p.threshold || 0.08;
           this.refractoryMs = p.refractoryMs || 50;
           this.silenceGateDb = p.silenceGateDb || -70;
           this.adaptivePre = p.adaptivePre || 8;
@@ -2555,6 +2567,9 @@
         btn.classList.toggle("active", btn.dataset.inputMode === state.inputMode);
       });
       $("inputChannelSelect").value = String(state.inputChannel);
+      $("inputBoostInput").value = String(state.inputBoostDb);
+      $("inputBoostValue").textContent = `+${state.inputBoostDb} dB`;
+      if (timing.inputBoost) timing.inputBoost.gain.value = Math.pow(10, state.inputBoostDb / 20);
       $("audioInputToggleBtn").textContent = state.audioInputActive ? "Audio Off" : "Audio On";
       $("onsetThresholdInput").value = String(state.onsetThreshold);
       $("onsetThresholdValue").textContent = state.onsetThreshold.toFixed(2);
@@ -2756,6 +2771,8 @@
         timing.inputHighpass.type = "highpass";
         timing.inputHighpass.frequency.value = 30;
         timing.inputHighpass.Q.value = 0.707;
+        timing.inputBoost = audioCtx.createGain();
+        timing.inputBoost.gain.value = Math.pow(10, state.inputBoostDb / 20);
         timing.levelAnalyser = audioCtx.createAnalyser();
         timing.levelAnalyser.fftSize = 1024;
         timing.levelBuffer = new Float32Array(timing.levelAnalyser.fftSize);
@@ -2775,8 +2792,9 @@
         timing.onsetNode.port.onmessage = event => handleOnsetMessage(event.data || {});
         timing.inputSource.connect(timing.channelSplitter);
         timing.channelSplitter.connect(timing.inputHighpass, state.inputChannel);
-        timing.inputHighpass.connect(timing.levelAnalyser);
-        timing.inputHighpass.connect(timing.onsetNode);
+        timing.inputHighpass.connect(timing.inputBoost);
+        timing.inputBoost.connect(timing.levelAnalyser);
+        timing.inputBoost.connect(timing.onsetNode);
         state.audioInputActive = true;
         setAudioInputStatus(`Audio input: ${state.inputDeviceLabel || "Input"} / ${state.inputChannel + 1}ch`);
         reflectAudioInputUi();
@@ -2797,10 +2815,11 @@
       sendCalMode(false);
       if (timing.levelMonitor) window.cancelAnimationFrame(timing.levelMonitor);
       timing.levelMonitor = null;
-      [timing.onsetNode, timing.inputHighpass, timing.channelSplitter, timing.inputSource].forEach(node => {
+      [timing.onsetNode, timing.inputBoost, timing.inputHighpass, timing.channelSplitter, timing.inputSource].forEach(node => {
         try { if (node) node.disconnect(); } catch (_) {}
       });
       timing.onsetNode = null;
+      timing.inputBoost = null;
       timing.inputHighpass = null;
       timing.channelSplitter = null;
       timing.inputSource = null;
@@ -3535,8 +3554,8 @@
     }
 
     const SETTINGS_KEY = "bassTrinityTrainerSettings";
-    const SETTING_FIELDS = ["tempo", "clickMode", "progressMode", "countInBars", "topRepeats", "judgeWindow", "clickSound", "clickVolume", "clickTone", "guideEnabled", "fingerDisplay", "showNext", "ghostEnabled", "beatPattern", "inputMode", "inputDeviceId", "inputChannel", "onsetThreshold", "refractoryMs", "silenceGateDb", "frameSize", "hopSize", "adaptivePre", "adaptivePost"];
-    const DEFAULT_SETTINGS = { tempo: 90, clickMode: "backbeat", progressMode: "quarter", countInBars: 1, topRepeats: 2, judgeWindow: 20, clickSound: true, clickVolume: 0.65, clickTone: "bright", guideEnabled: true, fingerDisplay: "num", showNext: true, ghostEnabled: true, beatPattern: ["accent", "on", "on", "on"], inputMode: "t1", inputDeviceId: "", inputChannel: 0, onsetThreshold: 0.18, refractoryMs: 50, silenceGateDb: -70, frameSize: 1024, hopSize: 256, adaptivePre: 8, adaptivePost: 1 };
+    const SETTING_FIELDS = ["tempo", "clickMode", "progressMode", "countInBars", "topRepeats", "judgeWindow", "clickSound", "clickVolume", "clickTone", "guideEnabled", "fingerDisplay", "showNext", "ghostEnabled", "beatPattern", "inputMode", "inputDeviceId", "inputChannel", "inputBoostDb", "onsetThreshold", "refractoryMs", "silenceGateDb", "frameSize", "hopSize", "adaptivePre", "adaptivePost"];
+    const DEFAULT_SETTINGS = { tempo: 90, clickMode: "backbeat", progressMode: "quarter", countInBars: 1, topRepeats: 2, judgeWindow: 20, clickSound: true, clickVolume: 0.65, clickTone: "bright", guideEnabled: true, fingerDisplay: "num", showNext: true, ghostEnabled: true, beatPattern: ["accent", "on", "on", "on"], inputMode: "t1", inputDeviceId: "", inputChannel: 0, inputBoostDb: 0, onsetThreshold: 0.08, refractoryMs: 50, silenceGateDb: -70, frameSize: 1024, hopSize: 256, adaptivePre: 8, adaptivePost: 1 };
     function saveSettings() {
       const data = {};
       SETTING_FIELDS.forEach(key => { data[key] = state[key]; });
@@ -3552,7 +3571,8 @@
       if (!["t1", "audio"].includes(state.inputMode)) state.inputMode = "t1";
       state.clickVolume = clampGainValue(Number(state.clickVolume) || DEFAULT_SETTINGS.clickVolume);
       state.inputChannel = Math.max(0, Math.min(1, Number(state.inputChannel) || 0));
-      state.onsetThreshold = Math.max(0.05, Math.min(0.6, Number(state.onsetThreshold) || DEFAULT_SETTINGS.onsetThreshold));
+      state.inputBoostDb = Math.max(0, Math.min(24, Number(state.inputBoostDb) || 0));
+      state.onsetThreshold = Math.max(0.01, Math.min(0.6, Number(state.onsetThreshold) || DEFAULT_SETTINGS.onsetThreshold));
       state.refractoryMs = Math.max(30, Math.min(90, Number(state.refractoryMs) || DEFAULT_SETTINGS.refractoryMs));
       state.silenceGateDb = Math.max(-80, Math.min(-35, Number(state.silenceGateDb) || DEFAULT_SETTINGS.silenceGateDb));
       state.frameSize = [1024, 2048].includes(Number(state.frameSize)) ? Number(state.frameSize) : DEFAULT_SETTINGS.frameSize;
@@ -3688,8 +3708,29 @@
       window.setTimeout(() => input.focus(), 0);
     }
 
+    // ESC・外側クリックで閉じられるモーダル（gateModal＝パスワードのれんは対象外）。
+    const CLOSEABLE_MODALS = ["summaryModal", "loopbackSafetyModal", "helpModal", "historyModal"];
+    function isGateOpen() {
+      const g = $("gateModal");
+      return !!(g && g.classList.contains("show"));
+    }
+    function closeTopModal() {
+      if (isGateOpen()) return false;
+      for (let i = CLOSEABLE_MODALS.length - 1; i >= 0; i--) {
+        const el = $(CLOSEABLE_MODALS[i]);
+        if (el && el.classList.contains("show")) { el.classList.remove("show"); return true; }
+      }
+      return false;
+    }
+
     function init() {
       initPasswordGate();
+      CLOSEABLE_MODALS.forEach(id => {
+        const el = $(id);
+        if (el) el.addEventListener("click", event => {
+          if (event.target === el) el.classList.remove("show");
+        });
+      });
       applyTheme(localStorage.getItem("bassTrinityTrainerTheme") || "light");
       $("themeToggle").addEventListener("click", () => {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
@@ -3863,6 +3904,12 @@
           stopAudioInput({ keepAudioContext: true, quiet: true });
           await startAudioInput();
         }
+        saveSettings();
+      });
+      $("inputBoostInput").addEventListener("input", () => {
+        state.inputBoostDb = Math.max(0, Math.min(24, Number($("inputBoostInput").value) || 0));
+        $("inputBoostValue").textContent = `+${state.inputBoostDb} dB`;
+        if (timing.inputBoost) timing.inputBoost.gain.value = Math.pow(10, state.inputBoostDb / 20);
         saveSettings();
       });
       $("onsetThresholdInput").addEventListener("input", () => {
@@ -4039,6 +4086,9 @@
         });
       });
       window.addEventListener("keydown", event => {
+        if (event.key === "Escape") {
+          if (closeTopModal()) { event.preventDefault(); return; }
+        }
         if (event.code === "Space") {
           event.preventDefault();
           if (!state.tapCalibrating) startTiming();

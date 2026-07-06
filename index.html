@@ -850,6 +850,15 @@
       padding: 20px;
     }
     .summary-modal.show { display: grid; }
+    .gate-modal { z-index: 9999; }
+    #gateInput.shake { animation: gate-shake 0.35s ease; border-color: var(--danger, #d9534f); }
+    @keyframes gate-shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-7px); }
+      40% { transform: translateX(7px); }
+      60% { transform: translateX(-5px); }
+      80% { transform: translateX(5px); }
+    }
     .summary-dialog {
       width: min(680px, 100%);
       max-height: 86vh;
@@ -1373,7 +1382,7 @@
               <option value="0" selected>1ch</option>
               <option value="1">2ch</option>
             </select>
-            <div class="audio-meter" data-tip="入力レベル。ピークホールド付き"><span id="inputLevelFill"></span><i class="peak-hold" id="inputPeakHold"></i></div>
+            <div class="audio-meter" data-tip="入力レベル（ピーク）。ピークホールド付き"><span id="inputLevelFill"></span><i class="peak-hold" id="inputPeakHold"></i></div>
             <button type="button" class="clip-led" id="inputClipLed" aria-label="clip indicator reset" data-tip="-0.5dBFS超で点灯。クリックでリセット"></button>
             <span class="readout" id="inputLevelText">-- dB</span>
           </div>
@@ -1402,7 +1411,7 @@
           </div>
           <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
           <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 2.9 (2026-07-06)</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.0 (2026-07-06)</div>
         </div>
 
         <div class="setting-block" id="blockOnset">
@@ -1520,9 +1529,16 @@
         <p><b>クリック位置</b><br>2 & 4 (Backbeat)=2拍4拍のみ ／ On Beat=毎拍 ／ Off Beat=8分ウラ。カウントインはどのモードでも常に表で鳴ります。</p>
         <p><b>Audio Input</b><br>AUDIOは入力デバイスとチャンネルを選び、30Hzハイパス後のAudioWorkletで半波整流Spectral Fluxを検出します。EC/NS/AGCがブラウザ側で無効化できない場合は警告します。</p>
         <p><b>較正（Calibration）</b><br>Tap Cal は T1 テスト専用の簡易較正です。AUDIOモードでは出力→入力を物理直結するLoopback Calibrationを使い、検出パイプライン変更時は再較正が必要です。リミッターはアプリ出力の天井であり、I/F内部のモニターループ発振は止められません。</p>
+        <p><b>較正（キャリブレーション）って何？</b><br>パソコンの中を音が通るとき、目に見えない「配達の時間」がかかります。メトロノームの音が鳴るまで、あなたの音がアプリに届くまで、それぞれ数十ミリ秒（1000分の数十秒）の遅れがあります。この遅れを測って差し引かないと、ぴったりに弾いたのに「遅い」と判定されてしまいます。</p>
+        <ul>
+          <li>Loopback Calibration（本番用）：オーディオインターフェースの出力と入力をケーブル1本で直結し、アプリがテスト音を16回鳴らして往復時間を正確に測ります。AUDIOモードで練習する人は最初にこれをやってください。</li>
+          <li>Test-only Calibration（お試し用）：Enterキーで遊ぶだけの人向けの簡易補正です。マイクやケーブルは不要。</li>
+          <li>測った値はブラウザに保存されますが、ブラウザを開き直すと数ミリ秒ずれることがあります。真剣に計測する日は、開いたら較正1回、が合言葉です。</li>
+          <li>較正しなくてもメトロノームとガイドはそのまま使えます（シンプルモード♪ならそもそも較正不要）。</li>
+        </ul>
       </div>
       <div class="dialog-actions">
-        <button type="button" class="btn-ghost" id="resetSettingsBtn" data-tip="BPM・クリック設定・判定幅などを初期値に戻す（メニュー・較正・指板の見た目は保持）">設定をリセット</button>
+        <button type="button" class="btn-ghost" id="resetSettingsBtn" data-tip="BPM・クリック設定・判定幅などを初期値に戻す（メニュー・較正の設定は保持）">設定をリセット</button>
         <button type="button" class="icon-btn" id="historyBtnHelp" data-tip="過去のセッション履歴（直近30件）">履歴</button>
         <button type="button" class="icon-btn primary" id="closeHelpBtn">Close</button>
       </div>
@@ -1540,7 +1556,22 @@
   </div>
   <div class="toast" id="toast"></div>
 
+  <div class="summary-modal gate-modal" id="gateModal" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+    <div class="summary-dialog">
+      <h2 id="gateTitle">Bass Trinity Trainer</h2>
+      <p class="coach-sub">パスワードを入力してください</p>
+      <div class="row">
+        <input type="password" id="gateInput" autocomplete="off" placeholder="password" style="flex:1; min-width:0;">
+        <button type="button" class="icon-btn primary" id="gateSubmit">決定</button>
+      </div>
+      <p class="coach-sub">友人向けの簡易ロックです</p>
+    </div>
+  </div>
+
   <script>
+    // Pages配信(github.io)限定の簡易パスワードのれん用ハッシュ（SHA-256 of "bass2026"）。
+    // 安全装置ではなく友人向けの目隠し。変更方法: echo -n "新パスワード" | shasum -a 256
+    const GATE_PASSWORD_HASH = "b09e1133464a7553d3fc2b931c067fce6104b468efc65d491418e0ae25e343d9";
     const NOTES = ["C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"];
     const NOTE_INDEX = {
       C:0, "B#":0, "C#":1, Db:1, D:2, "D#":3, Eb:3, E:4, Fb:4,
@@ -1670,6 +1701,9 @@
       detectionMethod: "specflux",
       loopbackOffsetMs: 0,
       loopbackSdMs: null,
+      loopbackSavedLoaded: false,
+      loopbackMeasuredThisSession: false,
+      recalPromptShown: false,
       loopbackCalibrating: false,
       loopbackHits: [],
       loopbackScheduled: [],
@@ -2124,6 +2158,12 @@
       return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
     }
 
+    function signedDir(value, digits = 1) {
+      const v = Number(value) || 0;
+      if (Math.abs(v) < 0.05) return "±0.0 ms";
+      return `${signed(v, digits)} ms ${v > 0 ? "LATE" : "EARLY"}`;
+    }
+
     function statsFromHits(hits) {
       const paired = hits.filter(hit => hit.kind === "hit");
       const values = paired.map(hit => hit.ms);
@@ -2165,7 +2205,7 @@
         $("trendTiming").textContent = "--";
       } else {
         const last = paired[paired.length - 1].ms;
-        $("averageTiming").textContent = `${signed(stats.avg)} ms`;
+        $("averageTiming").textContent = signedDir(stats.avg);
         $("lastTiming").textContent = `${signed(last)} ms`;
         $("lastTimingSub").textContent = Math.abs(last) <= state.judgeWindow ? "JUST" : last < 0 ? "EARLY" : "LATE";
         $("timingScore").textContent = `${Math.round(stats.justRate * 100)}%`;
@@ -2278,6 +2318,17 @@
       if (el) el.textContent = message;
     }
 
+    function maybeShowRecalPrompt() {
+      // 保存値をロードしたセッションで、今セッションまだ測定しておらず、AUDIO入力を
+      // 開始したときに1回だけ通常色で再較正を促す。今セッションで較正を実行したら出さない。
+      if (state.recalPromptShown) return;
+      if (state.inputMode !== "audio") return;
+      if (!state.loopbackSavedLoaded || state.loopbackMeasuredThisSession) return;
+      if (state.calibrationInvalid || !state.loopbackOffsetMs) return;
+      state.recalPromptShown = true;
+      setLoopbackStatus(`保存値 ${formatOffsetDual(state.loopbackOffsetMs)} を使用中。ブラウザを開き直した後は1〜3msずれることがあります（気になる日は再較正を）`);
+    }
+
     function clampGainValue(value, max = 1) {
       return Math.max(0, Math.min(max, Number.isFinite(value) ? value : 0));
     }
@@ -2375,6 +2426,7 @@
         state.loopbackOffsetMs = Number(item.offsetMs) || 0;
         state.loopbackSdMs = typeof item.sdMs === "number" ? item.sdMs : null;
         state.calibrationInvalid = false;
+        state.loopbackSavedLoaded = true;
         state.loopbackPendingOffsetMs = null;
         state.loopbackPendingSdMs = null;
       } else if (item) {
@@ -2506,10 +2558,12 @@
     function monitorInputLevel() {
       if (!state.audioInputActive || !timing.levelAnalyser || !timing.levelBuffer) return;
       timing.levelAnalyser.getFloatTimeDomainData(timing.levelBuffer);
-      let sum = 0;
-      for (const sample of timing.levelBuffer) sum += sample * sample;
-      const rms = Math.sqrt(sum / timing.levelBuffer.length);
-      updateInputLevel(20 * Math.log10(Math.max(rms, 0.00001)));
+      let peak = 0;
+      for (const sample of timing.levelBuffer) {
+        const a = sample < 0 ? -sample : sample;
+        if (a > peak) peak = a;
+      }
+      updateInputLevel(20 * Math.log10(Math.max(peak, 0.00001)));
       timing.levelMonitor = window.requestAnimationFrame(monitorInputLevel);
     }
 
@@ -2538,10 +2592,12 @@
     function describeInputSettings(track) {
       const settings = track.getSettings ? track.getSettings() : {};
       const flags = ["echoCancellation", "noiseSuppression", "autoGainControl"];
-      const lines = flags.map(key => `${key.replace(/[a-z]+(?=[A-Z])/, m => m[0].toUpperCase())}:${settings[key] === false ? "off" : settings[key] === true ? "ON" : "--"}`);
+      const flagNamesJa = { echoCancellation: "エコー除去", noiseSuppression: "ノイズ抑制", autoGainControl: "自動音量" };
       const warnings = flags.filter(key => settings[key] === true);
       state.inputSettingsWarning = warnings.length > 0;
-      $("inputSettingsStatus").textContent = `EC/NS/AGC: ${lines.join(" / ")}${warnings.length ? "（無効化失敗の可能性）" : ""}`;
+      $("inputSettingsStatus").textContent = warnings.length
+        ? `⚠ ブラウザの音声補正が有効です（計測が乱れます）: ${warnings.map(key => flagNamesJa[key]).join("・")}`
+        : `ブラウザの音声補正: すべてOFF（計測に最適）`;
       reflectAudioInputUi();
     }
 
@@ -2601,6 +2657,7 @@
         setAudioInputStatus(`Audio input: ${state.inputDeviceLabel || "Input"} / ${state.inputChannel + 1}ch`);
         reflectAudioInputUi();
         monitorInputLevel();
+        maybeShowRecalPrompt();
         await refreshInputDevices();
         return true;
       } catch (error) {
@@ -3083,6 +3140,7 @@
         setLoopbackStep(1);
         return;
       }
+      state.loopbackMeasuredThisSession = true;
       state.inputMode = "audio";
       reflectAudioInputUi();
       const ok = await startAudioInput();
@@ -3315,9 +3373,9 @@
         <div class="coach-sub">Menu: ${escapeHtml(menuLabel())}</div>
         <div class="summary-grid">
           <div class="coach-card"><span class="coach-label">Hits</span><div class="coach-main">${stats.hits}</div></div>
-          <div class="coach-card"><span class="coach-label">Average</span><div class="coach-main">${stats.hits ? signed(stats.avg) : "--"}</div></div>
+          <div class="coach-card"><span class="coach-label">Average</span><div class="coach-main">${stats.hits ? signedDir(stats.avg) : "--"}</div></div>
           <div class="coach-card"><span class="coach-label">Just</span><div class="coach-main">${Math.round(stats.justRate * 100)}%</div></div>
-          <div class="coach-card"><span class="coach-label">Median</span><div class="coach-main">${stats.hits ? signed(stats.med) : "--"}</div></div>
+          <div class="coach-card"><span class="coach-label">Median</span><div class="coach-main">${stats.hits ? signedDir(stats.med) : "--"}</div></div>
           <div class="coach-card"><span class="coach-label">SD</span><div class="coach-main">${stats.hits ? stats.sd.toFixed(1) : "--"}</div></div>
           <div class="coach-card"><span class="coach-label">Miss/Ghost</span><div class="coach-main">${state.misses}/${state.ghosts}</div></div>
         </div>
@@ -3456,7 +3514,44 @@
       try { localStorage.setItem("bttSimpleMode", on ? "1" : "0"); } catch (_) {}
     }
 
+    async function sha256Hex(str) {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+      return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    function initPasswordGate() {
+      // github.io配信時のみ発動。localhost/file/その他では一切何も出さない（ローカル版は現状のまま）。
+      if (!location.hostname.endsWith("github.io")) return;
+      try { if (localStorage.getItem("bttGateOk") === "1") return; } catch (_) {}
+      // crypto.subtleが使えない環境(非https等)ではゲートをスキップして通す（fail-open＝のれん）。
+      if (!(window.crypto && crypto.subtle && crypto.subtle.digest)) return;
+      const modal = $("gateModal");
+      const input = $("gateInput");
+      const submit = $("gateSubmit");
+      if (!modal || !input || !submit) return;
+      modal.classList.add("show");
+      const tryUnlock = async () => {
+        let hex = "";
+        try { hex = await sha256Hex(input.value); } catch (_) { modal.classList.remove("show"); return; }
+        if (hex === GATE_PASSWORD_HASH) {
+          try { localStorage.setItem("bttGateOk", "1"); } catch (_) {}
+          modal.classList.remove("show");
+        } else {
+          input.classList.remove("shake");
+          void input.offsetWidth;
+          input.classList.add("shake");
+          input.select();
+        }
+      };
+      submit.addEventListener("click", tryUnlock);
+      input.addEventListener("keydown", event => {
+        if (event.key === "Enter") { event.preventDefault(); tryUnlock(); }
+      });
+      window.setTimeout(() => input.focus(), 0);
+    }
+
     function init() {
+      initPasswordGate();
       applyTheme(localStorage.getItem("bassTrinityTrainerTheme") || "light");
       $("themeToggle").addEventListener("click", () => {
         applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");

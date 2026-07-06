@@ -713,7 +713,7 @@
       box-shadow: 0 0 12px rgba(242, 166, 60, .75);
     }
     .onset-test-row { align-items: center; gap: 8px; }
-    #onsetTestBtn.active {
+    #onsetTestBtn.active, #autoSetupBtn.active {
       background: #f2a63c;
       color: #201400;
       border-color: #f2a63c;
@@ -1440,16 +1440,22 @@
           </div>
           <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
           <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.3 (2026-07-06)</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.4 (2026-07-06)</div>
         </div>
 
         <div class="setting-block" id="blockOnset">
           <div class="block-title">Onset Detection <span class="status-pill" id="calibrationStateBadge">UNCAL</span></div>
           <div class="row onset-test-row">
             <button type="button" class="icon-btn" id="onsetTestBtn" aria-pressed="false" data-tip="検出テスト：練習を始めずに、いま弾いた音が1音として検出されるか確認する">Test</button>
+            <button type="button" class="icon-btn" id="autoSetupBtn" aria-pressed="false" data-tip="無音と試し弾きを測って、BoostとSenseのおすすめ値を自動計算します。機材や部屋が変わったら1回やり直すだけ。">Auto Setup</button>
             <span class="onset-test-led" id="onsetTestLed" aria-hidden="true"></span>
             <span class="readout" id="onsetTestFlux" data-tip="いま入ってきた音の強さ（検出スコア）。この数字がSenseの値を越えた瞬間に「1音」と認められ、LEDが光ります。光らないときはここを見る：Senseに少し届いていないだけなら→Senseを下げる。ずっとゼロ付近なら音自体が届いていない→入力ゲインと配線を確認。">--</span>
             <span class="hint" id="onsetTestStatus"></span>
+          </div>
+          <div class="row onset-test-row">
+            <span class="hint" id="autoSetupStatus"></span>
+            <button type="button" class="icon-btn primary" id="autoSetupApplyBtn" hidden>適用</button>
+            <button type="button" class="icon-btn" id="autoSetupRedoBtn" hidden>やり直す</button>
           </div>
           <div class="row">
             <span class="row-label" data-tip="Spectral Fluxの固定閾値。取りこぼしは下げる、Ghostは上げる">Sense</span>
@@ -1620,6 +1626,22 @@
     // Pages配信(github.io)限定の簡易パスワードのれん用ハッシュ（SHA-256 of "bass2026"）。
     // 安全装置ではなく友人向けの目隠し。変更方法: echo -n "新パスワード" | shasum -a 256
     const GATE_PASSWORD_HASH = "b09e1133464a7553d3fc2b931c067fce6104b468efc65d491418e0ae25e343d9";
+
+    // ===== オートセットアップ調整表 =====
+    // ここの数字だけを実測に基づいて調整する（調整ガイドmd参照）。ロジック側は触らない
+    const AUTO_SETUP_TUNING = {
+      silenceMs: 2000,        // ①無音サンプリングの長さ(ms)
+      hitTarget: 6,           // ②必要な試し弾きの回数
+      hitTimeoutMs: 20000,    // ②の待ち時間上限(ms)。時間切れでも4発以上あれば成立
+      hitMinCount: 4,         // 成立に必要な最少ヒット数
+      hitGateRatio: 4,        // ヒット認定＝flux-peakがノイズ天井×この倍率を超えたとき
+      hitRefractoryMs: 400,   // ヒット認定の不応期(ms)
+      targetPeakDb: -15,      // Boost後に狙う入力ピーク(dBFS)
+      boostMin: 0, boostMax: 24,
+      senseHitRatio: 0.45,    // Sense＝ヒットfluxの中央値×この係数（取りこぼし側マージン）
+      senseNoiseRatio: 3.0,   // ただしノイズflux天井×この係数を下回らせない（ゴースト側マージン）
+      senseMin: 0.01, senseMax: 0.6
+    };
     const NOTES = ["C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"];
     const NOTE_INDEX = {
       C:0, "B#":0, "C#":1, Db:1, D:2, "D#":3, Eb:3, E:4, Fb:4,
@@ -2650,6 +2672,7 @@
 
     async function applyOnsetTestMode(on) {
       if (on) {
+        cancelAutoSetup();
         setOnsetTestStatus("");
         if (!state.audioInputActive) {
           state.inputMode = "audio";
@@ -2670,6 +2693,149 @@
         setOnsetTestStatus("");
       }
       reflectOnsetTestUi();
+    }
+
+    // ===== オートセットアップβ（既存test-mode配管を再利用。Workletは触らない） =====
+    const autoSetupState = { phase: null, noiseFlux: 0, noisePeakDb: -100, hits: [], lastHitTime: 0, proposal: null, timer: null };
+
+    function setAutoSetupStatus(message) {
+      const el = $("autoSetupStatus");
+      if (el) el.textContent = message || "";
+    }
+
+    function reflectAutoSetupUi() {
+      const busy = autoSetupState.phase !== null;
+      const btn = $("autoSetupBtn");
+      if (btn) {
+        btn.classList.toggle("active", busy);
+        btn.setAttribute("aria-pressed", busy ? "true" : "false");
+      }
+      const showProposal = autoSetupState.phase === "done" && !!autoSetupState.proposal;
+      const apply = $("autoSetupApplyBtn");
+      const redo = $("autoSetupRedoBtn");
+      if (apply) apply.hidden = !showProposal;
+      if (redo) redo.hidden = !showProposal;
+    }
+
+    function autoSetupClearTimer() {
+      if (autoSetupState.timer) { window.clearTimeout(autoSetupState.timer); autoSetupState.timer = null; }
+    }
+
+    // 較正/練習/テスト/入力停止/シンプルモード突入で安全に中止（状態表示を戻す）
+    function cancelAutoSetup() {
+      if (autoSetupState.phase === null) return;
+      const wasMeasuring = autoSetupState.phase === "silence" || autoSetupState.phase === "hits";
+      autoSetupClearTimer();
+      autoSetupState.phase = null;
+      autoSetupState.proposal = null;
+      if (wasMeasuring) sendTestMode(false);
+      setAutoSetupStatus("");
+      reflectAutoSetupUi();
+    }
+
+    async function startAutoSetup() {
+      if (autoSetupState.phase !== null) { cancelAutoSetup(); return; }
+      if (state.loopbackCalibrating || state.running) {
+        setAutoSetupStatus("較正中・練習中は実行できません。");
+        return;
+      }
+      cancelOnsetTestMode();
+      if (!state.audioInputActive) {
+        state.inputMode = "audio";
+        reflectAudioInputUi();
+        const ok = await startAudioInput();
+        if (!ok) {
+          setAutoSetupStatus("入力を開始できませんでした。デバイスを選んで再試行してください。");
+          return;
+        }
+      }
+      autoSetupState.phase = "silence";
+      autoSetupState.noiseFlux = 0;
+      autoSetupState.noisePeakDb = -100;
+      autoSetupState.hits = [];
+      autoSetupState.lastHitTime = 0;
+      autoSetupState.proposal = null;
+      reflectAutoSetupUi();
+      setAutoSetupStatus("オートセットアップ ①静かにしてください…（2秒）");
+      sendTestMode(true);
+      autoSetupClearTimer();
+      autoSetupState.timer = window.setTimeout(finishSilencePhase, AUTO_SETUP_TUNING.silenceMs);
+    }
+
+    function finishSilencePhase() {
+      if (autoSetupState.phase !== "silence") return;
+      autoSetupClearTimer();
+      autoSetupState.phase = "hits";
+      autoSetupState.lastHitTime = 0;
+      setAutoSetupStatus(`②普段の強さで${AUTO_SETUP_TUNING.hitTarget}回弾いてください…（あと${AUTO_SETUP_TUNING.hitTarget}回）`);
+      autoSetupState.timer = window.setTimeout(finishHitsPhase, AUTO_SETUP_TUNING.hitTimeoutMs);
+    }
+
+    // flux-peakストリーム（worklet既存）から主スレッドで無音天井・ヒットを認定
+    function autoSetupOnFluxPeak(value) {
+      const T = AUTO_SETUP_TUNING;
+      if (autoSetupState.phase === "silence") {
+        if (value > autoSetupState.noiseFlux) autoSetupState.noiseFlux = value;
+        if (state.inputPeakDb > autoSetupState.noisePeakDb) autoSetupState.noisePeakDb = state.inputPeakDb;
+      } else if (autoSetupState.phase === "hits") {
+        const gate = autoSetupState.noiseFlux * T.hitGateRatio;
+        const now = performance.now();
+        if (value > gate && (now - autoSetupState.lastHitTime) >= T.hitRefractoryMs) {
+          autoSetupState.lastHitTime = now;
+          autoSetupState.hits.push({ flux: value, peakDb: state.inputPeakDb });
+          const remain = Math.max(0, T.hitTarget - autoSetupState.hits.length);
+          setAutoSetupStatus(`②普段の強さで${T.hitTarget}回弾いてください…（あと${remain}回）`);
+          if (autoSetupState.hits.length >= T.hitTarget) finishHitsPhase();
+        }
+      }
+    }
+
+    function finishHitsPhase() {
+      if (autoSetupState.phase !== "hits") return;
+      autoSetupClearTimer();
+      const T = AUTO_SETUP_TUNING;
+      if (autoSetupState.hits.length < T.hitMinCount) {
+        autoSetupState.phase = null;
+        sendTestMode(false);
+        setAutoSetupStatus("音が検出できませんでした。ゲインを上げてやり直してください。");
+        reflectAutoSetupUi();
+        return;
+      }
+      autoSetupState.phase = "done";
+      sendTestMode(false);
+      const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+      const hitFluxes = autoSetupState.hits.map(h => h.flux);
+      const hitPeaks = autoSetupState.hits.map(h => h.peakDb);
+      const curBoost = state.inputBoostDb;
+      // boostは差し替え後の絶対値（現在Boost込みの実測から算出）
+      const boostDb = clamp(Math.round(T.targetPeakDb - median(hitPeaks) + curBoost), T.boostMin, T.boostMax);
+      // Boost変更でfluxが線形スケールする近似
+      const scale = Math.pow(10, (boostDb - curBoost) / 20);
+      // Sense＝max(ヒット側マージン, ノイズ側マージン)。0.01刻みに丸め
+      const senseRaw = Math.max(median(hitFluxes) * scale * T.senseHitRatio, autoSetupState.noiseFlux * scale * T.senseNoiseRatio);
+      const sense = clamp(Math.round(senseRaw * 100) / 100, T.senseMin, T.senseMax);
+      autoSetupState.proposal = { boostDb, sense };
+      setAutoSetupStatus(`提案: Boost +${boostDb}dB / Sense ${sense.toFixed(2)} →`);
+      reflectAutoSetupUi();
+    }
+
+    // 適用まで既存設定は一切変えない。適用でinputBoostDb/onsetThresholdへ反映し既存保存・送信経路で確定
+    function applyAutoSetup() {
+      if (autoSetupState.phase !== "done" || !autoSetupState.proposal) return;
+      const { boostDb, sense } = autoSetupState.proposal;
+      state.inputBoostDb = boostDb;
+      $("inputBoostInput").value = String(boostDb);
+      $("inputBoostValue").textContent = `+${boostDb} dB`;
+      if (timing.inputBoost) timing.inputBoost.gain.value = Math.pow(10, boostDb / 20);
+      state.onsetThreshold = sense;
+      $("onsetThresholdInput").value = String(sense);
+      $("onsetThresholdValue").textContent = sense.toFixed(2);
+      sendOnsetParams();
+      saveSettings();
+      autoSetupState.phase = null;
+      autoSetupState.proposal = null;
+      reflectAutoSetupUi();
+      setAutoSetupStatus("適用しました。Testで光り方を確認してください。");
     }
 
     function updateInputLevel(db) {
@@ -2813,6 +2979,7 @@
 
     function stopAudioInput({ quiet = false, keepAudioContext = false } = {}) {
       sendCalMode(false);
+      cancelAutoSetup();
       if (timing.levelMonitor) window.cancelAnimationFrame(timing.levelMonitor);
       timing.levelMonitor = null;
       [timing.onsetNode, timing.inputBoost, timing.inputHighpass, timing.channelSplitter, timing.inputSource].forEach(node => {
@@ -2869,7 +3036,8 @@
         return;
       }
       if (data.type === "flux-peak") {
-        if (state.onsetTestMode) updateOnsetTestFlux(data.value);
+        if (autoSetupState.phase === "silence" || autoSetupState.phase === "hits") autoSetupOnFluxPeak(data.value);
+        else if (state.onsetTestMode) updateOnsetTestFlux(data.value);
         return;
       }
       if (data.type !== "onset") return;
@@ -3284,6 +3452,7 @@
 
     async function beginLoopbackCalibration() {
       cancelOnsetTestMode();
+      cancelAutoSetup();
       if (state.running) stopTiming();
       if (state.tapCalibrating) finishTapCalibration();
       if (state.loopbackCalibrating) {
@@ -3373,6 +3542,7 @@
       }
       try {
         cancelOnsetTestMode();
+        cancelAutoSetup();
         if (state.tapCalibrating) finishTapCalibration();
         if (state.loopbackCalibrating) finishLoopbackCalibration();
         if (timing.audioCtx && !state.audioInputActive) {
@@ -3668,7 +3838,7 @@
         btn.dataset.tip = on ? "通常モードへ戻る（計測UIを表示）" : "シンプルモード：タイミング計測なし。メトロノームとガイドだけ";
       }
       if (on && state.audioInputActive) stopAudioInput();
-      if (on) cancelOnsetTestMode();
+      if (on) { cancelOnsetTestMode(); cancelAutoSetup(); }
       try { localStorage.setItem("bttSimpleMode", on ? "1" : "0"); } catch (_) {}
     }
 
@@ -3883,6 +4053,15 @@
       });
       $("onsetTestBtn").addEventListener("click", () => {
         applyOnsetTestMode(!state.onsetTestMode);
+      });
+      $("autoSetupBtn").addEventListener("click", () => {
+        if (autoSetupState.phase !== null) cancelAutoSetup();
+        else startAutoSetup();
+      });
+      $("autoSetupApplyBtn").addEventListener("click", applyAutoSetup);
+      $("autoSetupRedoBtn").addEventListener("click", () => {
+        cancelAutoSetup();
+        startAutoSetup();
       });
       $("refreshDevicesBtn").addEventListener("click", () => {
         refreshInputDevices().catch(error => setAudioInputStatus(`Device list failed: ${error.message}`));

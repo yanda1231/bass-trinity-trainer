@@ -699,6 +699,25 @@
       background: var(--late);
       box-shadow: 0 0 12px rgba(224, 90, 54, .6);
     }
+    .onset-test-led {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(242, 166, 60, .5);
+      background: var(--surface-2);
+      box-shadow: inset 0 0 0 2px var(--surface);
+      flex: none;
+    }
+    .onset-test-led.on {
+      background: #f2a63c;
+      box-shadow: 0 0 12px rgba(242, 166, 60, .75);
+    }
+    .onset-test-row { align-items: center; gap: 8px; }
+    #onsetTestBtn.active {
+      background: #f2a63c;
+      color: #201400;
+      border-color: #f2a63c;
+    }
     .readout {
       min-width: 64px;
       font-size: 11px;
@@ -1411,11 +1430,17 @@
           </div>
           <div class="timing-status" id="loopbackEstimateStatus">推定（未実測）: --</div>
           <div class="timing-status" id="loopbackCalStatus">Loopback: 未較正。AUDIOモードでは未較正表示のまま動作します。</div>
-          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.1 (2026-07-06)</div>
+          <div class="hint" id="buildVersionLabel" style="opacity:0.6;font-size:0.8em;">build 3.2 (2026-07-06)</div>
         </div>
 
         <div class="setting-block" id="blockOnset">
           <div class="block-title">Onset Detection <span class="status-pill" id="calibrationStateBadge">UNCAL</span></div>
+          <div class="row onset-test-row">
+            <button type="button" class="icon-btn" id="onsetTestBtn" aria-pressed="false" data-tip="検出テスト：練習を始めずに、いま弾いた音が1音として検出されるか確認する">Test</button>
+            <span class="onset-test-led" id="onsetTestLed" aria-hidden="true"></span>
+            <span class="readout" id="onsetTestFlux" data-tip="いま入ってきた音の強さ（検出スコア）。この数字がSenseの値を越えた瞬間に「1音」と認められ、LEDが光ります。光らないときはここを見る：Senseに少し届いていないだけなら→Senseを下げる。ずっとゼロ付近なら音自体が届いていない→入力ゲインと配線を確認。">--</span>
+            <span class="hint" id="onsetTestStatus"></span>
+          </div>
           <div class="row">
             <span class="row-label" data-tip="Spectral Fluxの固定閾値。取りこぼしは下げる、Ghostは上げる">Sense</span>
             <input type="range" id="onsetThresholdInput" min="0.05" max="0.6" step="0.01" value="0.18">
@@ -1717,6 +1742,7 @@
       loopbackSavedLoaded: false,
       loopbackMeasuredThisSession: false,
       recalPromptShown: false,
+      onsetTestMode: false,
       loopbackCalibrating: false,
       loopbackHits: [],
       loopbackScheduled: [],
@@ -1794,6 +1820,9 @@
           this.overloadLatched = false;
           this.calMode = false;
           this.calFloor = 1e-6;
+          this.testMode = false;
+          this.testFluxPeak = 0;
+          this.testSamples = 0;
           this.frame = new Float32Array(this.frameSize);
           this.window = new Float32Array(this.frameSize);
           this.prevMag = new Float32Array(Math.min(160, this.frameSize / 2));
@@ -1821,6 +1850,11 @@
             if (data.type === "cal-mode") {
               this.calMode = !!data.enabled;
               if (!this.calMode) this.calFloor = 1e-6;
+            }
+            if (data.type === "test-mode") {
+              this.testMode = !!data.enabled;
+              this.testFluxPeak = 0;
+              this.testSamples = 0;
             }
           };
         }
@@ -1852,6 +1886,14 @@
           if (!this.overloadLatched && this.overloadSamples >= sampleRate * 0.25) {
             this.overloadLatched = true;
             this.port.postMessage({ type: "overload" });
+          }
+          if (this.testMode && !this.calMode) {
+            this.testSamples += input.length;
+            if (this.testSamples >= sampleRate * 0.2) {
+              this.port.postMessage({ type: "flux-peak", value: this.testFluxPeak });
+              this.testFluxPeak = 0;
+              this.testSamples = 0;
+            }
           }
           return true;
         }
@@ -1893,6 +1935,7 @@
           const rms = Math.sqrt(sum / this.frameSize);
           const db = 20 * Math.log10(Math.max(rms, 0.000001));
           const flux = db < this.silenceGateDb ? 0 : this.spectralFlux(ordered);
+          if (this.testMode && flux > this.testFluxPeak) this.testFluxPeak = flux;
           const item = { flux, db, frameEnd };
           this.fluxHistory.push(flux);
           this.pending.push(item);
@@ -2546,6 +2589,74 @@
       timing.onsetNode.port.postMessage({ type: "cal-mode", enabled: !!enabled });
     }
 
+    function sendTestMode(enabled) {
+      if (!timing.onsetNode) return;
+      timing.onsetNode.port.postMessage({ type: "test-mode", enabled: !!enabled });
+    }
+
+    function setOnsetTestStatus(message) {
+      const el = $("onsetTestStatus");
+      if (el) el.textContent = message || "";
+    }
+
+    function reflectOnsetTestUi() {
+      const btn = $("onsetTestBtn");
+      if (btn) {
+        btn.classList.toggle("active", state.onsetTestMode);
+        btn.setAttribute("aria-pressed", state.onsetTestMode ? "true" : "false");
+      }
+    }
+
+    function updateOnsetTestFlux(value) {
+      const el = $("onsetTestFlux");
+      if (el && Number.isFinite(value)) el.textContent = value.toFixed(2);
+    }
+
+    function flashOnsetTestLed(data) {
+      const led = $("onsetTestLed");
+      if (led) {
+        led.classList.add("on");
+        if (timing.onsetTestLedTimer) window.clearTimeout(timing.onsetTestLedTimer);
+        timing.onsetTestLedTimer = window.setTimeout(() => led.classList.remove("on"), 150);
+      }
+      if (data && typeof data.flux === "number") updateOnsetTestFlux(data.flux);
+    }
+
+    // 交通整理：較正開始・練習開始時に呼び、テストモードを自動解除する（テスト最下位）。
+    function cancelOnsetTestMode() {
+      if (!state.onsetTestMode) return;
+      state.onsetTestMode = false;
+      sendTestMode(false);
+      setOnsetTestStatus("");
+      const flux = $("onsetTestFlux");
+      if (flux) flux.textContent = "--";
+      reflectOnsetTestUi();
+    }
+
+    async function applyOnsetTestMode(on) {
+      if (on) {
+        setOnsetTestStatus("");
+        if (!state.audioInputActive) {
+          state.inputMode = "audio";
+          reflectAudioInputUi();
+          const ok = await startAudioInput();
+          if (!ok) {
+            setOnsetTestStatus("入力を開始できませんでした。デバイスを選んで再試行してください。");
+            return;
+          }
+        }
+        state.onsetTestMode = true;
+        sendTestMode(true);
+      } else {
+        state.onsetTestMode = false;
+        sendTestMode(false);
+        const flux = $("onsetTestFlux");
+        if (flux) flux.textContent = "--";
+        setOnsetTestStatus("");
+      }
+      reflectOnsetTestUi();
+    }
+
     function updateInputLevel(db) {
       state.inputLevelDb = db;
       if (db <= -99) state.inputPeakDb = -100;
@@ -2738,13 +2849,24 @@
         triggerOverloadMute();
         return;
       }
+      if (data.type === "flux-peak") {
+        if (state.onsetTestMode) updateOnsetTestFlux(data.value);
+        return;
+      }
       if (data.type !== "onset") return;
+      // 交通整理：検出イベントの行き先は 較正中 > 練習中 > テスト中 の優先で1つだけ。
       if (state.loopbackCalibrating) {
         recordLoopbackDetection(data.audioTime);
         return;
       }
-      if (state.inputMode !== "audio") return;
-      recordHit(data.audioTime - state.loopbackOffsetMs / 1000, "audio");
+      if (state.running) {
+        if (state.inputMode === "audio") recordHit(data.audioTime - state.loopbackOffsetMs / 1000, "audio");
+        return;
+      }
+      if (state.onsetTestMode) {
+        flashOnsetTestLed(data);
+        return;
+      }
     }
 
     function calibrationStorage() {
@@ -3142,6 +3264,7 @@
     }
 
     async function beginLoopbackCalibration() {
+      cancelOnsetTestMode();
       if (state.running) stopTiming();
       if (state.tapCalibrating) finishTapCalibration();
       if (state.loopbackCalibrating) {
@@ -3230,6 +3353,7 @@
         return;
       }
       try {
+        cancelOnsetTestMode();
         if (state.tapCalibrating) finishTapCalibration();
         if (state.loopbackCalibrating) finishLoopbackCalibration();
         if (timing.audioCtx && !state.audioInputActive) {
@@ -3524,6 +3648,7 @@
         btn.dataset.tip = on ? "通常モードへ戻る（計測UIを表示）" : "シンプルモード：タイミング計測なし。メトロノームとガイドだけ";
       }
       if (on && state.audioInputActive) stopAudioInput();
+      if (on) cancelOnsetTestMode();
       try { localStorage.setItem("bttSimpleMode", on ? "1" : "0"); } catch (_) {}
     }
 
@@ -3714,6 +3839,9 @@
         }
         reflectAudioInputUi();
         saveSettings();
+      });
+      $("onsetTestBtn").addEventListener("click", () => {
+        applyOnsetTestMode(!state.onsetTestMode);
       });
       $("refreshDevicesBtn").addEventListener("click", () => {
         refreshInputDevices().catch(error => setAudioInputStatus(`Device list failed: ${error.message}`));

@@ -37,20 +37,20 @@ function readPcm16MonoWav(filePath) {
   return { ...format, samples };
 }
 
-function analyze(filePath) {
+function analyze(filePath, options) {
   const wav = readPcm16MonoWav(filePath);
   // These downloaded fixtures are long, sustained single notes. The onset detector's
   // spectral analysis is intentionally expensive, so the attack section is enough for
   // this local diagnostic. This is not used as a CI pass/fail assertion.
-  const analysisSamples = Math.min(wav.samples.length, Math.round(wav.sampleRate * 2));
+  const analysisSamples = Math.min(wav.samples.length, Math.round(wav.sampleRate * options.seconds));
   const { Processor, context } = loadOnsetProcessor(wav.sampleRate);
   const processor = new Processor({
     processorOptions: {
       frameSize: 1024,
       hopSize: 256,
-      threshold: 0.08,
-      refractoryMs: 50,
-      silenceGateDb: -70,
+      threshold: options.sense,
+      refractoryMs: options.refract,
+      silenceGateDb: options.gate,
       adaptivePre: 8,
       adaptivePost: 1
     }
@@ -69,15 +69,31 @@ function analyze(filePath) {
     sampleRate: wav.sampleRate,
     durationSeconds: wav.samples.length / wav.sampleRate,
     analyzedSeconds: analysisSamples / wav.sampleRate,
+    settings: {
+      sense: options.sense,
+      refractMs: options.refract,
+      gateDb: options.gate
+    },
     onsetCount: onsets.length,
     onsetTimesSeconds: onsets.map(message => Number(message.audioTime.toFixed(4)))
   };
 }
 
-const files = process.argv.slice(2);
+const options = { sense: 0.08, refract: 80, gate: -70, seconds: 2 };
+const files = [];
+for (const argument of process.argv.slice(2)) {
+  const option = argument.match(/^--(sense|refract|gate|seconds)=(.+)$/);
+  if (!option) {
+    files.push(argument);
+    continue;
+  }
+  const value = Number(option[2]);
+  if (!Number.isFinite(value)) throw new Error(`Invalid numeric option: ${argument}`);
+  options[option[1]] = value;
+}
 if (!files.length) {
-  process.stderr.write("Usage: npm run analyze:wav -- <file.wav> [more.wav]\n");
+  process.stderr.write("Usage: npm run analyze:wav -- [--sense=0.08] [--refract=80] [--gate=-70] [--seconds=2] <file.wav> [more.wav]\n");
   process.exitCode = 1;
 } else {
-  for (const file of files) process.stdout.write(`${JSON.stringify(analyze(path.resolve(file)), null, 2)}\n`);
+  for (const file of files) process.stdout.write(`${JSON.stringify(analyze(path.resolve(file), options), null, 2)}\n`);
 }

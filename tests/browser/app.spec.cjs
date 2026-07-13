@@ -28,3 +28,19 @@ test("published app opens and its non-audio controls respond", async ({ page }) 
 
   expect(pageErrors).toEqual([]);
 });
+
+test("the separated onset processor is available from the published path", async ({ page }) => {
+  await page.goto("/", { waitUntil: "networkidle" });
+
+  const result = await page.evaluate(async () => {
+    const url = new URL("src/onset-processor.js", document.baseURI);
+    const response = await fetch(url.href);
+    const source = await response.text();
+    return {
+      ok: response.ok,
+      registersProcessor: source.includes('registerProcessor("btt-onset-processor"')
+    };
+  });
+
+  expect(result).toEqual({ ok: true, registersProcessor: true });
+});

@@ -33,6 +33,35 @@ test("calibration reports the exact threshold-crossing sample", () => {
   assert.equal(onset.audioTime, (1024 + 37) / sampleRate);
 });
 
+test("the default 80 ms Refract suppresses a 64 ms duplicate candidate", () => {
+  const sampleRate = 44_100;
+  const { Processor } = loadOnsetProcessor(sampleRate);
+  const processor = new Processor({ processorOptions: {} });
+  const firstFrame = 4096;
+  processor.fluxHistory = [0, 0, 0];
+
+  processor.pickPeak({ flux: 1, db: -12, frameEnd: firstFrame });
+  processor.pickPeak({ flux: 1, db: -12, frameEnd: firstFrame + Math.round(sampleRate * 0.064) });
+
+  assert.equal(processor.refractoryMs, 80);
+  assert.equal(processor.port.messages.filter(message => message.type === "onset").length, 1);
+});
+
+test("the default 80 ms Refract still accepts BPM 200 eighth notes", () => {
+  const sampleRate = 48_000;
+  const { Processor } = loadOnsetProcessor(sampleRate);
+  const processor = new Processor({ processorOptions: {} });
+  const firstFrame = 4096;
+  const eighthNoteAtBpm200 = 60 / 200 / 2;
+  processor.fluxHistory = [0, 0, 0];
+
+  processor.pickPeak({ flux: 1, db: -12, frameEnd: firstFrame });
+  processor.pickPeak({ flux: 1, db: -12, frameEnd: firstFrame + sampleRate * eighthNoteAtBpm200 });
+
+  assert.equal(eighthNoteAtBpm200, 0.15);
+  assert.equal(processor.port.messages.filter(message => message.type === "onset").length, 2);
+});
+
 test("sustained overload is latched once", () => {
   const sampleRate = 44_100;
   const { Processor, context } = loadOnsetProcessor(sampleRate);
@@ -48,4 +77,3 @@ test("sustained overload is latched once", () => {
   const overloads = processor.port.messages.filter(message => message.type === "overload");
   assert.equal(overloads.length, 1);
 });
-

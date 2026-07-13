@@ -4,6 +4,7 @@ const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "../..");
 const INDEX_PATH = path.join(ROOT, "index.html");
+const WORKLET_PATH = path.join(ROOT, "src/onset-processor.js");
 
 function readIndex() {
   return fs.readFileSync(INDEX_PATH, "utf8");
@@ -69,10 +70,8 @@ function extractFunction(source, name) {
   throw new Error(`Unclosed function in index.html: ${name}`);
 }
 
-function extractWorkletCode(source = readIndex()) {
-  const match = source.match(/const ONSET_WORKLET_CODE = `([\s\S]*?)`;\s*\n/);
-  if (!match) throw new Error("ONSET_WORKLET_CODE not found in index.html");
-  return match[1];
+function extractWorkletCode() {
+  return fs.readFileSync(WORKLET_PATH, "utf8");
 }
 
 function loadFunctions(names, globals = {}) {
@@ -119,10 +118,10 @@ function loadOnsetProcessor(sampleRate = 44_100) {
 module.exports = {
   INDEX_PATH,
   ROOT,
+  WORKLET_PATH,
   extractFunction,
   extractWorkletCode,
   loadFunctions,
   loadOnsetProcessor,
   readIndex
 };
-

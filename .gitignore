@@ -1,0 +1,9 @@
+node_modules/
+playwright-report/
+test-results/
+.DS_Store
+
+# Downloaded/local recordings stay outside GitHub until their license and
+# expected onset positions are documented. Reviewed test fixtures may live here.
+*.wav
+!tests/fixtures/*.wav

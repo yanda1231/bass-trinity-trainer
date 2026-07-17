@@ -77,3 +77,22 @@ test("sustained overload is latched once", () => {
   const overloads = processor.port.messages.filter(message => message.type === "overload");
   assert.equal(overloads.length, 1);
 });
+
+test("Auto Setup measurement windows report flux and peak level together", () => {
+  const sampleRate = 44_100;
+  const { Processor, context } = loadOnsetProcessor(sampleRate);
+  const processor = new Processor({ processorOptions: {} });
+  const input = new Float32Array(128);
+  processor.testMode = true;
+  processor.testFluxPeak = 0.42;
+  processor.testPeakDb = -12;
+  processor.testSamples = sampleRate * 0.2 - input.length;
+  context.currentFrame = 0;
+
+  processor.process([[input]]);
+
+  const measurement = processor.port.messages.find(message => message.type === "flux-peak");
+  assert.deepEqual(JSON.parse(JSON.stringify(measurement)), { type: "flux-peak", value: 0.42, peakDb: -12 });
+  assert.equal(processor.testFluxPeak, 0);
+  assert.equal(processor.testPeakDb, -100);
+});

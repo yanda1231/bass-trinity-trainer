@@ -16,6 +16,7 @@ class BttOnsetProcessor extends AudioWorkletProcessor {
     this.calFloor = 1e-6;
     this.testMode = false;
     this.testFluxPeak = 0;
+    this.testPeakDb = -100;
     this.testSamples = 0;
     this.frame = new Float32Array(this.frameSize);
     this.window = new Float32Array(this.frameSize);
@@ -48,6 +49,7 @@ class BttOnsetProcessor extends AudioWorkletProcessor {
       if (data.type === "test-mode") {
         this.testMode = !!data.enabled;
         this.testFluxPeak = 0;
+        this.testPeakDb = -100;
         this.testSamples = 0;
       }
     };
@@ -83,10 +85,13 @@ class BttOnsetProcessor extends AudioWorkletProcessor {
       this.port.postMessage({ type: "overload" });
     }
     if (this.testMode && !this.calMode) {
+      const blockPeakDb = 20 * Math.log10(Math.max(blockPeak, 0.000001));
+      if (blockPeakDb > this.testPeakDb) this.testPeakDb = blockPeakDb;
       this.testSamples += input.length;
       if (this.testSamples >= sampleRate * 0.2) {
-        this.port.postMessage({ type: "flux-peak", value: this.testFluxPeak });
+        this.port.postMessage({ type: "flux-peak", value: this.testFluxPeak, peakDb: this.testPeakDb });
         this.testFluxPeak = 0;
+        this.testPeakDb = -100;
         this.testSamples = 0;
       }
     }
@@ -132,7 +137,9 @@ class BttOnsetProcessor extends AudioWorkletProcessor {
     const rms = Math.sqrt(sum / this.frameSize);
     const db = 20 * Math.log10(Math.max(rms, 0.000001));
     const flux = db < this.silenceGateDb ? 0 : this.spectralFlux(ordered);
-    if (this.testMode && flux > this.testFluxPeak) this.testFluxPeak = flux;
+    if (this.testMode) {
+      if (flux > this.testFluxPeak) this.testFluxPeak = flux;
+    }
     const item = { flux, db, frameEnd };
     this.fluxHistory.push(flux);
     this.pending.push(item);

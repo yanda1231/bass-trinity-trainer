@@ -1451,7 +1451,7 @@
           <div class="block-title">Onset Detection <span class="status-pill" id="calibrationStateBadge">UNCAL</span></div>
           <div class="row onset-test-row">
             <button type="button" class="icon-btn" id="onsetTestBtn" aria-pressed="false" data-tip="検出テスト：練習を始めずに、いま弾いた音が1音として検出されるか確認する">Test</button>
-            <button type="button" class="icon-btn" id="autoSetupBtn" aria-pressed="false" data-tip="無音と試し弾きを測って、BoostとSenseのおすすめ値を自動計算します。機材や部屋が変わったら1回やり直すだけ。">Auto Setup</button>
+            <button type="button" class="icon-btn" id="autoSetupBtn" aria-pressed="false" data-tip="無音とE・A・D・G各開放弦を測って、BoostとSenseのおすすめ値を自動計算します。機材や部屋が変わったら1回やり直すだけ。">Auto Setup</button>
             <span class="onset-test-led" id="onsetTestLed" aria-hidden="true"></span>
             <span class="readout" id="onsetTestFlux" data-tip="いま入ってきた音の強さ（検出スコア）。この数字がSenseの値を越えた瞬間に「1音」と認められ、LEDが光ります。光らないときはここを見る：Senseに少し届いていないだけなら→Senseを下げる。ずっとゼロ付近なら音自体が届いていない→入力ゲインと配線を確認。">--</span>
             <span class="hint" id="onsetTestStatus"></span>
@@ -1579,7 +1579,7 @@
         <p><b>基本の流れ</b><br>キーとパターンを選ぶ → Space で開始/停止。<br>タイミングを計測したい人は Audio Input の AUDIO をON。<br>AUDIOがOFFでも、メトロノーム＋指板ガイドで練習できます。タイミング計測がいらない人は右上の♪（シンプルモード）で、メトロノームとガイドだけの表示になります。</p>
         <p><b>1セットとは</b><br>開始音から上行 → 頂点で折り返し → 開始音に戻るまで。U-TURN＝頂点を2回弾くか1回か。</p>
         <p><b>判定の読み方</b><br>＋＝LATE（遅れ）／−＝EARLY（先走り）／判定幅内＝JUST。<br>判定幅は Judge Window で変更できます。TIGHT ±10（プロ基準の目安）／NORMAL ±20／EASY ±35。<br>Miss＝弾かなかった音、Ghost＝予定にない余計なヒット。<br>各数字の意味は、<b>マウスを重ねると説明が出ます</b>。</p>
-        <p><b>AUDIOモードで判定するまで（3ステップ）</b><br>1. AUDIO をONにして入力デバイスを選ぶ<br>2. Auto Setup — 静かに2秒＋普段の強さで6回弾くだけ。感度合わせはこれにお任せ<br>3. Loopback Calibration — 出力→入力をケーブル1本で直結し、音の「配達の時間」を自動測定。真剣に測る日は「開いたら較正1回」<br><br>スライダー（Sense / Refract / Gate / Advanced）は、Auto Setupで解決しないときだけ。役割はマウスオーバーで出ます。</p>
+        <p><b>AUDIOモードで判定するまで（3ステップ）</b><br>1. AUDIO をONにして入力デバイスを選ぶ<br>2. Auto Setup — 静かに2秒待ち、案内に沿ってE・A・D・G各開放弦を普段どおり弾くだけ。感度合わせはこれにお任せ<br>3. Loopback Calibration — 出力→入力をケーブル1本で直結し、音の「配達の時間」を自動測定。真剣に測る日は「開いたら較正1回」<br><br>スライダー（Sense / Refract / Gate / Advanced）は、Auto Setupで解決しないときだけ。役割はマウスオーバーで出ます。</p>
         <p><b>メトロノームとお手本</b><br>Click＝クリックの鳴る位置（2&4／毎拍／8分ウラ／Custom）。<br>Guide＝正解の音のお手本（音量は Guide Volume）。聴きながら重ねて、慣れたら絞って卒業。<br>スピーカーアイコンで、クリックとお手本を1小節だけ試聴（OFFにしている音は鳴りません）。</p>
         <p><b>困ったときは</b><br>・検出されない → まず Auto Setup。だめなら Boost でメーター7〜8割 → Sense を下げる<br>・「入力が過大です」の赤警告 → 入力ゲインを下げて「復帰」<br>・設定が迷子 → 「設定を初期値に戻す」（較正・履歴は残ります）。全部消すなら「全データを消去」</p>
         <p><b>較正（キャリブレーション）って何？</b><br>パソコンの中を音が通るときは、目に見えない「配達の時間」がかかります。これを測って差し引かないと、ぴったり弾いたのに「遅い」と出ます。AUDIO入力の人は Loopback Calibration を使ってください（出力→入力をケーブル1本で直結し、テスト音16回で自動測定。画面のチェックリストに従えば安全です）。測った値は保存されますが、ブラウザを開き直すと数ミリ秒ずれることがあります——真剣に計測する日は「開いたら較正1回」。なお、リミッターはアプリ出力の天井であり、I/F内部のモニターループ発振は止められません。較正しなくてもメトロノームとガイドはそのまま使えます。</p>
@@ -1625,10 +1625,9 @@
     // ここの数字だけを実測に基づいて調整する（調整ガイドmd参照）。ロジック側は触らない
     const AUTO_SETUP_TUNING = {
       silenceMs: 2000,        // ①無音サンプリングの長さ(ms)
-      hitTarget: 6,           // ②必要な試し弾きの回数
-      hitTimeoutMs: 20000,    // ②の待ち時間上限(ms)。時間切れでも4発以上あれば成立
-      hitMinCount: 4,         // 成立に必要な最少ヒット数
-      hitGateRatio: 4,        // ヒット認定＝flux-peakがノイズ天井×この倍率を超えたとき
+      stringMeasureMs: 1800,  // ②各弦の最初の発音から測定を続ける長さ(ms)
+      quietHoldMs: 300,       // ③ミュート後、次の弦へ進むまで静かさを確認する長さ(ms)
+      hitGateRatio: 4,        // 測定開始＝flux-peakがノイズ天井×この倍率を超えたとき
       hitRefractoryMs: 400,   // ヒット認定の不応期(ms)
       targetPeakDb: -15,      // Boost後に狙う入力ピーク(dBFS)
       boostMin: 0, boostMax: 24,
@@ -1636,6 +1635,12 @@
       senseNoiseRatio: 3.0,   // ただしノイズflux天井×この係数を下回らせない（ゴースト側マージン）
       senseMin: 0.01, senseMax: 0.6
     };
+    const AUTO_SETUP_STRINGS = [
+      { number: 4, name: "E" },
+      { number: 3, name: "A" },
+      { number: 2, name: "D" },
+      { number: 1, name: "G" }
+    ];
     const NOTES = ["C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"];
     const NOTE_INDEX = {
       C:0, "B#":0, "C#":1, Db:1, D:2, "D#":3, Eb:3, E:4, Fb:4,
@@ -2660,8 +2665,21 @@
       reflectOnsetTestUi();
     }
 
-    // ===== オートセットアップβ（既存test-mode配管を再利用。Workletは触らない） =====
-    const autoSetupState = { phase: null, noiseFlux: 0, noisePeakDb: -100, hits: [], lastHitTime: 0, proposal: null, timer: null };
+    // ===== オートセットアップβ（既存test-mode配管を再利用） =====
+    const autoSetupState = {
+      phase: null,
+      noiseFlux: 0,
+      noiseLevelDb: -100,
+      noiseLevels: [],
+      stringIndex: 0,
+      measurements: [],
+      currentFluxes: [],
+      currentPeakDb: -100,
+      lastHitTime: 0,
+      quietSince: 0,
+      proposal: null,
+      timer: null
+    };
 
     function setAutoSetupStatus(message) {
       const el = $("autoSetupStatus");
@@ -2689,7 +2707,7 @@
     // 較正/練習/テスト/入力停止/シンプルモード突入で安全に中止（状態表示を戻す）
     function cancelAutoSetup() {
       if (autoSetupState.phase === null) return;
-      const wasMeasuring = autoSetupState.phase === "silence" || autoSetupState.phase === "hits";
+      const wasMeasuring = autoSetupState.phase !== "done";
       autoSetupClearTimer();
       autoSetupState.phase = null;
       autoSetupState.proposal = null;
@@ -2715,9 +2733,14 @@
       }
       autoSetupState.phase = "silence";
       autoSetupState.noiseFlux = 0;
-      autoSetupState.noisePeakDb = -100;
-      autoSetupState.hits = [];
+      autoSetupState.noiseLevelDb = -100;
+      autoSetupState.noiseLevels = [];
+      autoSetupState.stringIndex = 0;
+      autoSetupState.measurements = [];
+      autoSetupState.currentFluxes = [];
+      autoSetupState.currentPeakDb = -100;
       autoSetupState.lastHitTime = 0;
+      autoSetupState.quietSince = 0;
       autoSetupState.proposal = null;
       reflectAutoSetupUi();
       setAutoSetupStatus("オートセットアップ ①静かにしてください…（2秒）");
@@ -2729,54 +2752,101 @@
     function finishSilencePhase() {
       if (autoSetupState.phase !== "silence") return;
       autoSetupClearTimer();
-      autoSetupState.phase = "hits";
-      autoSetupState.lastHitTime = 0;
-      setAutoSetupStatus(`②普段の強さで${AUTO_SETUP_TUNING.hitTarget}回弾いてください…（あと${AUTO_SETUP_TUNING.hitTarget}回）`);
-      autoSetupState.timer = window.setTimeout(finishHitsPhase, AUTO_SETUP_TUNING.hitTimeoutMs);
+      if (autoSetupState.noiseLevels.length) autoSetupState.noiseLevelDb = median(autoSetupState.noiseLevels);
+      startAutoSetupString();
     }
 
-    // flux-peakストリーム（worklet既存）から主スレッドで無音天井・ヒットを認定
-    function autoSetupOnFluxPeak(value) {
+    function startAutoSetupString() {
+      const string = AUTO_SETUP_STRINGS[autoSetupState.stringIndex];
+      if (!string) { finishAutoSetup(); return; }
+      autoSetupState.phase = "await-string";
+      autoSetupState.currentFluxes = [];
+      autoSetupState.currentPeakDb = -100;
+      autoSetupState.lastHitTime = 0;
+      autoSetupState.quietSince = 0;
+      // 前の弦のミュート音を次の200ms集計窓へ持ち越さない。
+      sendTestMode(true);
+      setAutoSetupStatus(`普段の強さで、いつも通り${string.number}弦${string.name}（開放弦）を弾いてください`);
+    }
+
+    // Workletが200msごとに送る測定値から、各弦の自然な発音を約2秒収集する。
+    function autoSetupOnFluxPeak(value, peakDb) {
       const T = AUTO_SETUP_TUNING;
       if (autoSetupState.phase === "silence") {
         if (value > autoSetupState.noiseFlux) autoSetupState.noiseFlux = value;
-        if (state.inputPeakDb > autoSetupState.noisePeakDb) autoSetupState.noisePeakDb = state.inputPeakDb;
-      } else if (autoSetupState.phase === "hits") {
-        const gate = autoSetupState.noiseFlux * T.hitGateRatio;
-        const now = performance.now();
-        if (value > gate && (now - autoSetupState.lastHitTime) >= T.hitRefractoryMs) {
-          autoSetupState.lastHitTime = now;
-          autoSetupState.hits.push({ flux: value, peakDb: state.inputPeakDb });
-          const remain = Math.max(0, T.hitTarget - autoSetupState.hits.length);
-          setAutoSetupStatus(`②普段の強さで${T.hitTarget}回弾いてください…（あと${remain}回）`);
-          if (autoSetupState.hits.length >= T.hitTarget) finishHitsPhase();
-        }
+        return;
+      }
+      if (autoSetupState.phase !== "await-string" && autoSetupState.phase !== "measure-string") return;
+
+      const measuredPeakDb = Number.isFinite(peakDb) ? peakDb : state.inputLevelDb;
+      const gate = autoSetupState.noiseFlux * T.hitGateRatio;
+      const now = performance.now();
+
+      if (autoSetupState.phase === "await-string") {
+        if (value <= gate) return;
+        autoSetupState.phase = "measure-string";
+        autoSetupState.lastHitTime = now;
+        autoSetupState.currentFluxes.push(value);
+        autoSetupState.currentPeakDb = measuredPeakDb;
+        autoSetupState.timer = window.setTimeout(finishAutoSetupString, T.stringMeasureMs);
+        return;
+      }
+
+      if (measuredPeakDb > autoSetupState.currentPeakDb) autoSetupState.currentPeakDb = measuredPeakDb;
+      if (value > gate && (now - autoSetupState.lastHitTime) >= T.hitRefractoryMs) {
+        autoSetupState.lastHitTime = now;
+        autoSetupState.currentFluxes.push(value);
       }
     }
 
-    function finishHitsPhase() {
-      if (autoSetupState.phase !== "hits") return;
+    function finishAutoSetupString() {
+      if (autoSetupState.phase !== "measure-string") return;
       autoSetupClearTimer();
-      const T = AUTO_SETUP_TUNING;
-      if (autoSetupState.hits.length < T.hitMinCount) {
-        autoSetupState.phase = null;
-        sendTestMode(false);
-        setAutoSetupStatus("音が検出できませんでした。ゲインを上げてやり直してください。");
-        reflectAutoSetupUi();
+      const string = AUTO_SETUP_STRINGS[autoSetupState.stringIndex];
+      autoSetupState.measurements.push({
+        number: string.number,
+        name: string.name,
+        flux: median(autoSetupState.currentFluxes),
+        peakDb: autoSetupState.currentPeakDb
+      });
+      autoSetupState.phase = "wait-quiet";
+      autoSetupState.quietSince = 0;
+      setAutoSetupStatus("音を止めてください");
+      autoSetupOnInputLevel(state.inputLevelDb);
+    }
+
+    function autoSetupOnInputLevel(db) {
+      if (autoSetupState.phase === "silence") {
+        if (Number.isFinite(db)) autoSetupState.noiseLevels.push(db);
         return;
       }
+      if (autoSetupState.phase !== "wait-quiet") return;
+      const quietThresholdDb = Math.max(-95, autoSetupState.noiseLevelDb + 6);
+      if (db <= quietThresholdDb) {
+        if (!autoSetupState.quietSince) autoSetupState.quietSince = performance.now();
+        if (performance.now() - autoSetupState.quietSince >= AUTO_SETUP_TUNING.quietHoldMs) {
+          autoSetupState.stringIndex += 1;
+          startAutoSetupString();
+        }
+      } else {
+        autoSetupState.quietSince = 0;
+      }
+    }
+
+    function finishAutoSetup() {
       autoSetupState.phase = "done";
       sendTestMode(false);
+      const T = AUTO_SETUP_TUNING;
       const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
-      const hitFluxes = autoSetupState.hits.map(h => h.flux);
-      const hitPeaks = autoSetupState.hits.map(h => h.peakDb);
+      const weakestFlux = Math.min(...autoSetupState.measurements.map(item => item.flux));
+      const strongestPeakDb = Math.max(...autoSetupState.measurements.map(item => item.peakDb));
       const curBoost = state.inputBoostDb;
-      // boostは差し替え後の絶対値（現在Boost込みの実測から算出）
-      const boostDb = clamp(Math.round(T.targetPeakDb - median(hitPeaks) + curBoost), T.boostMin, T.boostMax);
+      // 最強弦にヘッドルームを残すBoostと、最弱弦を拾えるSenseを選ぶ。
+      const boostDb = clamp(Math.round(T.targetPeakDb - strongestPeakDb + curBoost), T.boostMin, T.boostMax);
       // Boost変更でfluxが線形スケールする近似
       const scale = Math.pow(10, (boostDb - curBoost) / 20);
-      // Sense＝max(ヒット側マージン, ノイズ側マージン)。0.01刻みに丸め
-      const senseRaw = Math.max(median(hitFluxes) * scale * T.senseHitRatio, autoSetupState.noiseFlux * scale * T.senseNoiseRatio);
+      // Sense＝max(最弱弦側マージン, ノイズ側マージン)。0.01刻みに丸め
+      const senseRaw = Math.max(weakestFlux * scale * T.senseHitRatio, autoSetupState.noiseFlux * scale * T.senseNoiseRatio);
       const sense = clamp(Math.round(senseRaw * 100) / 100, T.senseMin, T.senseMax);
       autoSetupState.proposal = { boostDb, sense };
       setAutoSetupStatus(`提案: Boost +${boostDb}dB / Sense ${sense.toFixed(2)} →`);
@@ -2822,6 +2892,7 @@
         state.inputClipHeld = true;
         $("inputClipLed").classList.add("on");
       }
+      autoSetupOnInputLevel(db);
     }
 
     function monitorInputLevel() {
@@ -3002,7 +3073,7 @@
         return;
       }
       if (data.type === "flux-peak") {
-        if (autoSetupState.phase === "silence" || autoSetupState.phase === "hits") autoSetupOnFluxPeak(data.value);
+        if (["silence", "await-string", "measure-string"].includes(autoSetupState.phase)) autoSetupOnFluxPeak(data.value, data.peakDb);
         else if (state.onsetTestMode) updateOnsetTestFlux(data.value);
         return;
       }
